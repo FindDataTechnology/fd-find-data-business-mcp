@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fd-find-data-business-mcp"
+dynamic = ["version"]
+description = "Commercial, login-gated MCP server serving FindData's own crawled data — zero upstream-provider exposure."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "FindDataTechnology" }]
+dependencies = [
+    "fd-open-data-mcp",
+    "fastmcp>=2.0",
+    "click",
+    "uvicorn",
+]
+
+[project.urls]
+Homepage = "https://github.com/FindDataTechnology/fd-find-data-business-mcp"
+Repository = "https://github.com/FindDataTechnology/fd-find-data-business-mcp"
+Issues = "https://github.com/FindDataTechnology/fd-find-data-business-mcp/issues"
+
+[project.scripts]
+fd-find-data-business-mcp = "fd_find_data_business_mcp.cli:cli"
+
+[tool.setuptools.dynamic]
+version = { attr = "fd_find_data_business_mcp.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["fd_find_data_business_mcp", "fd_find_data_business_mcp.*"]
