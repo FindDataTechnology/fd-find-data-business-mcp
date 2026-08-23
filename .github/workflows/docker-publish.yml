@@ -34,11 +34,12 @@ jobs:
           buildkitd-config-inline: |
             [registry."${{ secrets.HARBOR_HOST }}"]
               http = true
+              insecure = true
       - name: Compute image tags
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.HARBOR_HOST }}/finddata/${{ env.IMAGE_NAME }}
+          images: ${{ secrets.HARBOR_HOST }}/finddata-business/${{ env.IMAGE_NAME }}
           flavor: latest=false
           tags: |
             type=raw,value=latest

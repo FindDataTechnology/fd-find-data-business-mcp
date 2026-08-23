@@ -27,7 +27,7 @@ spec:
     spec:
       containers:
         - name: fd-find-data-business-mcp
-          image: harbor.local/finddata/fd-find-data-business-mcp:latest
+          image: harbor.local/finddata-business/fd-find-data-business-mcp:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: mcp
