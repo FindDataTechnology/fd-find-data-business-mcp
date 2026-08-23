@@ -35,7 +35,7 @@ any tool runs).
 
 ## Deploy (zihan k3s, namespace `fd-mcp`)
 
-Auth is Logto (RS256 JWT) via FastMCP's `JWTVerifier`. The canonical Logto
+Auth is Logto (ES384 JWT) via FastMCP's `JWTVerifier`. The canonical Logto
 instance runs on guangzhou-xinru:
 
 | Env var | Value |
@@ -44,6 +44,7 @@ instance runs on guangzhou-xinru:
 | `FDBIZ_JWKS_URI` | `https://auth.finddatatech.cloud/oidc/jwks` |
 | `FDBIZ_ISSUER` | `https://auth.finddatatech.cloud/oidc` |
 | `FDBIZ_AUDIENCE` | the API resource identifier you register in Logto admin (recommended: `https://api.finddatatech.cloud/mcp`) |
+| `FDBIZ_ALGORITHM` | JWT signing alg (default `ES384` — Logto's EC P-384 key; set `RS256` if your IdP signs RSA). |
 
 These four keys are added to the shared `fd-mcp-env` Secret (carries
 `FD_OPEN_DATA_MCP_DATABASE_URL` / `REDIS_URL` already — the business pod reuses

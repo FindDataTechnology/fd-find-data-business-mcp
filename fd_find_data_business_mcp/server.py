@@ -15,6 +15,7 @@ from fd_open_data_mcp.db import get_database
 # --- Auth: Logto JWT, env-gated ---------------------------------------------
 # Unset FDBIZ_JWKS_URI => no auth (local dev / smoke test). Set in deploy to
 # reject every request without a valid Logto-issued JWT (401 before any tool).
+# Algorithm defaults to ES384 (Logto's signing key); override via FDBIZ_ALGORITHM.
 def _build_auth():
     jwks = os.environ.get("FDBIZ_JWKS_URI")
     if not jwks:
@@ -28,7 +29,7 @@ def _build_auth():
         jwks_uri=jwks,
         issuer=os.environ.get("FDBIZ_ISSUER"),
         audience=os.environ.get("FDBIZ_AUDIENCE"),
-        algorithm="RS256",
+        algorithm=os.environ.get("FDBIZ_ALGORITHM", "ES384"),
     )
 
 
