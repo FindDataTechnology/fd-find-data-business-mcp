@@ -74,6 +74,7 @@ users' tokens must carry `aud: https://api.finddatatech.cloud/mcp`.
 
 ## Publish
 
-OIDC trusted publishing — tag `v*` triggers `.github/workflows/release.yml`
-(build → twine check → wheel smoke test → publish to PyPI). Harbor image built
-by `.github/workflows/docker-publish.yml` on push to `main` / tags.
+Token-based publishing — tag `v*` triggers `.github/workflows/release.yml`
+(build → twine check → wheel smoke test → publish to PyPI via API token).
+Harbor image built by `.github/workflows/docker-publish.yml` on push to
+`main` / tags.
