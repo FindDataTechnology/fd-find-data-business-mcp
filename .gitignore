@@ -5,3 +5,16 @@ __pycache__/
 *.pyc
 .venv/
 .DS_Store
+
+# Env / secrets — never commit real credentials
+.env
+.env.*
+!.env.example
+
+# Local databases / runtime state
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+.idea/
+.vscode/
