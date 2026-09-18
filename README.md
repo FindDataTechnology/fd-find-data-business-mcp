@@ -15,6 +15,22 @@ no `source_used` / `real_source_used` key ever reaches a client.
 | `list_concepts` | Browse all available FindData indicators. |
 | `ai_search` | Natural-language indicator + entity discovery (superset of all search tools). |
 | `graph_search` | Entity-relationship graph queries (bfs/dfs/neighbors/shortest_path/subgraph/ego_graph/statistics). |
+| `yearbook_search_indicators` | Fuzzy-search statistical-yearbook indicators (federated from the Windows data machine). |
+| `yearbook_read` | Annual series for a yearbook indicator, optionally one region and year range (latest edition wins). |
+| `law_search` | Fuzzy-search Chinese laws/regulations by title with optional category filter. |
+| `law_read` | Full text + metadata of one law by id. |
+
+## Domain federation (yearbook / law)
+
+The four domain tools read the Windows data machine's PostgreSQL in place,
+read-only, via `FDBIZ_DOMAIN_PG_URL` (e.g.
+`postgresql://fdbiz_ro:***@100.64.0.5:5432/postgres`; role `fdbiz_ro` has
+SELECT-only grants on `yearbook_catalog` and `law_db`). If that machine is
+down, the domain tools return `{"status": "domain_unavailable"}` while all
+core tools are unaffected. Optional tuning env: `FDBIZ_DOMAIN_CONNECT_TIMEOUT`
+(default 5s), `FDBIZ_DOMAIN_STATEMENT_TIMEOUT_MS` (default 15000),
+`FDBIZ_DOMAIN_DEBUG` (include truncated error text in unavailability
+responses).
 
 ## Install
 

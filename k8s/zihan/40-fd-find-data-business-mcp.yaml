@@ -5,7 +5,9 @@
 # FDBIZ_AUDIENCE to that Secret before applying (see README.md "Deploy").
 #
 # NodePort 30803 continues the sequence: 30801=fd-open-data-mcp, 30802=fd-cn-report.
-# Image tag: pin to sha-<short> once the first docker-publish build lands.
+# Image: built on zihan and imported via `k3s ctr images import` (the CI
+# docker-publish build is a refusing stub since 4bfd572). Flip to Always +
+# a sha-<short> tag once a real Harbor build lands.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -27,8 +29,8 @@ spec:
     spec:
       containers:
         - name: fd-find-data-business-mcp
-          image: harbor.local/finddata-business/fd-find-data-business-mcp:v0.1.2
-          imagePullPolicy: Always
+          image: 100.64.0.8:30880/finddata-business/fd-find-data-business-mcp:v0.2.0-federation
+          imagePullPolicy: IfNotPresent
           ports:
             - name: mcp
               containerPort: 8310

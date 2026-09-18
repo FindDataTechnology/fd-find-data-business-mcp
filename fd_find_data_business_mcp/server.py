@@ -242,6 +242,72 @@ def graph_search(
     return {"error": f"Unhandled algorithm: {algorithm}"}
 
 
+# --- Domain federation: yearbook + law (windows-admin data machine) ----------
+# Read-only federation over FDBIZ_DOMAIN_PG_URL. Fail-soft by design: when the
+# data machine is down these four tools return {"status": "domain_unavailable"}
+# while every core tool above is unaffected (separate engines and timeouts).
+
+@mcp.tool
+def yearbook_search_indicators(query: str, limit: int = 50) -> dict:
+    """Search FindData statistical-yearbook indicators by fuzzy name.
+
+    Returns {results: [{id, name, category, unit, brand}], count, truncated}.
+    Chinese or English partial names both work. If the yearbook store is
+    unreachable, returns {"status": "domain_unavailable"} instead of failing.
+    """
+    from fd_find_data_business_mcp.tools_yearbook import (
+        yearbook_search_indicators as _impl)
+
+    return _strip(_impl(query, limit))
+
+
+@mcp.tool
+def yearbook_read(
+    indicator_id: int,
+    region: str | None = None,
+    start_year: int | None = None,
+    end_year: int | None = None,
+    limit: int = 200,
+) -> dict:
+    """Read a yearbook indicator's annual series, optionally for one region
+    and year range.
+
+    Returns {results: [{year, region, value, unit, brand}], count, truncated};
+    a filter with no data returns an empty results list (truthful, not an
+    error). Latest edition wins when multiple yearbook editions cover the
+    same region-year.
+    """
+    from fd_find_data_business_mcp.tools_yearbook import yearbook_read as _impl
+
+    return _strip(_impl(indicator_id, region, start_year, end_year, limit))
+
+
+@mcp.tool
+def law_search(title_query: str, category: str | None = None, limit: int = 50) -> dict:
+    """Search Chinese laws and regulations by fuzzy title, optionally
+    filtered by category (e.g. 法律, 行政法规, 司法解释, 地方性法规).
+
+    Returns metadata rows only ({results: [{id, title, category, type,
+    status, publish, expiry, brand}], count, truncated}); fetch full text
+    with law_read.
+    """
+    from fd_find_data_business_mcp.tools_law import law_search as _impl
+
+    return _strip(_impl(title_query, category, limit))
+
+
+@mcp.tool
+def law_read(law_id: int) -> dict:
+    """Read one law's full text and metadata by id (from law_search).
+
+    Returns {id, title, category, type, status, publish, expiry, content,
+    brand}; an unknown id returns {"status": "not_found"}.
+    """
+    from fd_find_data_business_mcp.tools_law import law_read as _impl
+
+    return _strip(_impl(law_id))
+
+
 # --- Entry point ------------------------------------------------------------
 def main(transport: str = "stdio", host: str = "127.0.0.1", port: int = 8310) -> None:
     """Run the FindData business MCP server.
