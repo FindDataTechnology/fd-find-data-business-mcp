@@ -5,9 +5,11 @@
 # FDBIZ_AUDIENCE to that Secret before applying (see README.md "Deploy").
 #
 # NodePort 30803 continues the sequence: 30801=fd-open-data-mcp, 30802=fd-cn-report.
-# Image: built on zihan and imported via `k3s ctr images import` (the CI
-# docker-publish build is a refusing stub since 4bfd572). Flip to Always +
-# a sha-<short> tag once a real Harbor build lands.
+# Image pipeline (since 2026-09-19): Jenkins job fd-find-data-business-mcp
+# builds from gitee main on push and pushes immutable sha-<short-hash> tags to
+# Harbor project finddata-business. This manifest is managed by the ArgoCD
+# application fd-find-data-business-mcp (tencent cluster → zihan via SSH relay)
+# — bump the tag here to release.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -29,8 +31,8 @@ spec:
     spec:
       containers:
         - name: fd-find-data-business-mcp
-          image: 100.64.0.8:30880/finddata-business/fd-find-data-business-mcp:v0.2.0-federation
-          imagePullPolicy: IfNotPresent
+          image: 100.64.0.8:30880/finddata-business/fd-find-data-business-mcp:sha-57e2a1c
+          imagePullPolicy: Always
           ports:
             - name: mcp
               containerPort: 8310
