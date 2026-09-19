@@ -117,25 +117,120 @@ class TestLawSearchUnit:
         assert p["prefix"] == "50\\%\\_of%"
         assert p["pattern"] == "%50\\%\\_of%"
 
-    def test_category_filter_bound_as_param(self, monkeypatch):
+    def test_category_filter_expands_synonyms(self, monkeypatch):
         calls = []
         monkeypatch.setattr(tools_law, "query", _fake_query([], calls))
-        tools_law.law_search("民法典", category="法律")
+        tools_law.law_search("民法典", category="地方性法规")
         assert calls[0]["dbname"] == "law_db"
-        assert calls[0]["params"]["category"] == "法律"
-        assert "AND category = :category" in calls[0]["sql"]
+        assert calls[0]["params"]["categories"] == ["地方性法规", "地方法规"]
+        assert "AND category = ANY(:categories)" in calls[0]["sql"]
+        calls.clear()
+        tools_law.law_search("民法典", category="地方法规")
+        assert calls[0]["params"]["categories"] == ["地方性法规", "地方法规"]
+
+    def test_batch_category_filter_matches_nothing(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(tools_law, "query", _fake_query([], calls))
+        for cat in ("重下载", "新法速递"):
+            assert tools_law.law_search("民法典", category=cat) == {
+                "results": [], "count": 0, "truncated": False}
+        assert calls == []
 
     def test_no_category_clause_without_filter(self, monkeypatch):
         calls = []
         monkeypatch.setattr(tools_law, "query", _fake_query([], calls))
         tools_law.law_search("民法典")
-        assert "category" not in calls[0]["params"]
-        assert ":category" not in calls[0]["sql"]
+        assert "categories" not in calls[0]["params"]
+        assert "batch" in calls[0]["params"]
+        assert "ANY(:categories)" not in calls[0]["sql"]
 
     def test_domain_unavailable_passthrough(self, monkeypatch):
         fail = {"status": "domain_unavailable", "detail": "OperationalError"}
         monkeypatch.setattr(tools_law, "query", _fake_query(fail))
         assert tools_law.law_search("民法典") == fail
+
+
+class TestDedupAuthoritative:
+    """law-corpus-hygiene: one authoritative row per title."""
+
+    def test_duplicate_titles_collapse_to_canonical_row(self, monkeypatch):
+        rows = [
+            _row("网络安全法", id=1, category="法律", status="有效", publish="2016-11-07 00:00:00"),
+            _row("网络安全法", id=2, category="法律", status="有效", publish="2016-11-07 00:00:00"),
+            _row("网络安全法", id=3, category="法律", type="经济法", status="sxx:3",
+                 publish="2025-10-28"),
+            _row("网络安全法", id=4, category="新法速递", status="有效", publish="2025-10-28"),
+        ]
+        monkeypatch.setattr(tools_law, "query", _fake_query(rows))
+        out = tools_law.law_search("网络安全法")
+        assert out["count"] == 1
+        assert out["results"][0]["id"] == 1
+        assert out["results"][0]["category"] == "法律"
+
+    def test_future_dated_batch_row_never_beats_real_row(self, monkeypatch):
+        rows = [
+            _row("贵州省林地管理条例", id=10, category="重下载", status="有效",
+                 publish="2026-01-01 00:00:00"),
+            _row("贵州省林地管理条例", id=11, category="地方性法规", status="有效",
+                 publish="2004-01-01 00:00:00"),
+        ]
+        monkeypatch.setattr(tools_law, "query", _fake_query(rows))
+        out = tools_law.law_search("林地")
+        assert out["count"] == 1
+        assert out["results"][0]["id"] == 11
+
+    def test_effective_status_beats_other_within_canonical(self, monkeypatch):
+        rows = [
+            _row("某条例", id=20, category="地方性法规", status="已修改", publish="2020-06-01"),
+            _row("某条例", id=21, category="地方性法规", status="有效", publish="2019-01-01"),
+        ]
+        monkeypatch.setattr(tools_law, "query", _fake_query(rows))
+        out = tools_law.law_search("某条例")
+        assert out["results"][0]["id"] == 21
+
+    def test_newest_publish_wins_within_same_class(self, monkeypatch):
+        rows = [
+            _row("某条例", id=30, category="地方性法规", status="有效", publish="2004-01-01"),
+            _row("某条例", id=31, category="地方性法规", status="有效", publish="2018-05-01"),
+        ]
+        monkeypatch.setattr(tools_law, "query", _fake_query(rows))
+        out = tools_law.law_search("某条例")
+        assert out["results"][0]["id"] == 31
+
+    def test_batch_only_title_still_searchable(self, monkeypatch):
+        rows = [_row("某条例", id=40, category="重下载", status="有效", publish="2010-01-01")]
+        monkeypatch.setattr(tools_law, "query", _fake_query(rows))
+        out = tools_law.law_search("某条例")
+        assert out["count"] == 1
+        assert out["results"][0]["id"] == 40
+        assert out["results"][0]["category"] == "重下载"  # served as-is, never guessed
+
+    def test_dedup_precedes_limit(self, monkeypatch):
+        # 6 duplicate rows of title A + 2 distinct titles; limit=2 must still
+        # yield 2 distinct titles, not a page collapsed by duplicates.
+        rows = [_row("条例甲", id=50 + i, category="重下载", status="有效") for i in range(6)]
+        rows += [_row("条例乙", id=60), _row("条例丙", id=61)]
+        monkeypatch.setattr(tools_law, "query", _fake_query(rows))
+        out = tools_law.law_search("条例", limit=2)
+        assert out["count"] == 2
+        assert len(out["results"]) == 2
+
+    def test_served_category_normalized(self, monkeypatch):
+        rows = [_row("某条例", id=70, category="地方法规", status="有效")]
+        monkeypatch.setattr(tools_law, "query", _fake_query(rows))
+        out = tools_law.law_search("某条例")
+        assert out["results"][0]["category"] == "地方性法规"
+
+    def test_sql_dedups_before_limit(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(tools_law, "query", _fake_query([], calls))
+        tools_law.law_search("民法典", limit=50)
+        sql = calls[0]["sql"]
+        assert "DISTINCT ON (tkey)" in sql
+        assert "ORDER BY tkey, rank, cclass, sclass, publish DESC NULLS LAST" in sql
+        # LIMIT is the outermost bound → applies to distinct titles
+        assert sql.rstrip().endswith("LIMIT :lim")
+        assert sql.index("DISTINCT ON") < sql.index("LIMIT :lim")
 
 
 class TestLawReadUnit:
