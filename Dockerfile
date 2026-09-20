@@ -21,11 +21,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # Install the business package into the base (system python). Tsinghua
 # mirror: bare PyPI from CN cloud boxes stalls for tens of minutes.
+#
+# /src, not the base's /build: the base image is built from the
+# fd-open-data-mcp source tree, so it leaves that project (and its own
+# build/lib output) in /build. Building this wheel there made setuptools
+# assemble build/lib, which still held the base's fd_open_data_mcp tree — the
+# wheel swallowed 253 of those files and, installing after fd-open-data-mcp
+# 0.5.21, overwrote it with 0.5.16 code. The base's leftovers are removed too,
+# so the running image holds one copy of each package.
 USER root
-WORKDIR /build
+RUN rm -rf /build
+WORKDIR /src
 COPY . .
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple/ . \
-    && rm -rf /build /app/alembic /app/alembic.ini
+    && rm -rf /src /app/alembic /app/alembic.ini
 
 # Back to the base's unprivileged user.
 USER appuser

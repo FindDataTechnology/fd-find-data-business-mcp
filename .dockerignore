@@ -1,0 +1,20 @@
+# Build context hygiene. There were no entries here before, so the image also
+# carried this repo's .env (DB credentials) and stale build outputs into the
+# intermediate layers. Note that `build/` matters twice over: setuptools
+# assembles the wheel from build/lib, so a stale tree there becomes part of the
+# wheel — the base image's build/lib/fd_open_data_mcp is exactly how the
+# business wheel once absorbed an entire other project (253 files) and
+# overwrote the 0.5.21 install with 0.5.16 code.
+.git
+.gitignore
+.env
+.env.example
+.venv
+build
+dist
+*.egg-info
+__pycache__
+*.pyc
+.pytest_cache
+.deepeval
+.DS_Store
