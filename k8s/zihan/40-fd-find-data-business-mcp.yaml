@@ -39,6 +39,13 @@ spec:
           envFrom:
             - secretRef:
                 name: fd-mcp-env
+          env:
+            # First connection to the Windows data machine after a cold start
+            # can exceed the 5s default (mesh path setup); once warm it is
+            # ~0.3s. Without this, the first domain tool call of a session
+            # returns domain_unavailable.
+            - name: FDBIZ_DOMAIN_CONNECT_TIMEOUT
+              value: "15"
           # This image carries torch + sentence-transformers + the baked
           # embedding model (ai_search loads it in-process); the previous
           # 512Mi limit was sized for the pre-torch image and would OOM on
