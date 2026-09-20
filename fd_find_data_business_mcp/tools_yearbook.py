@@ -37,7 +37,8 @@ SELECT DISTINCT ON (region, data_year)
        data_year, region, value_num, value, unit
 FROM indicator_values
 WHERE {conds}
-ORDER BY region, data_year, edition_year DESC NULLS LAST
+ORDER BY region, data_year, edition_year DESC NULLS LAST,
+         (value_num IS NULL), id
 LIMIT :lim
 """
 
@@ -95,16 +96,30 @@ def yearbook_read(
     """Read the value series of one yearbook indicator.
 
     Serves one row per (region, data_year) — the latest ``edition_year``
-    only, chosen in SQL with DISTINCT ON — ordered by year. ``value`` is
-    the numeric form when available, else the raw string. Returns
-    ``{results, count, truncated}``; no rows is a truthful empty envelope,
-    and a domain failure is passed through unchanged.
+    only, chosen in SQL with DISTINCT ON. Within the same edition a row
+    with a numeric value outranks text siblings (English annotations and
+    header residue are ingested from parallel columns); a text row is
+    served only when no numeric sibling exists for that cell. The region
+    filter matches the ``region`` column directly, and additionally matches
+    the ``dims.admin_region`` dimension when the column carries no region
+    (province-level values are ingested with the region held in the
+    dimension and an empty column). Returns ``{results, count,
+    truncated}``; no rows is a truthful empty envelope, and a domain
+    failure is passed through unchanged.
     """
     limit = _clamp(limit, _READ_LIMIT_MAX)
     conds = ["indicator_id = :iid"]
     params: dict[str, Any] = {"iid": indicator_id, "lim": limit + 1}
     if region is not None:
-        conds.append("region = :region")
+        # Match the region column directly; fall back to the dimension only
+        # when the column carries no region (province values are ingested
+        # with the dimension holding the region and an empty column). The
+        # guard matters: cross-region comparison tables put the ROW region
+        # in the column while the dimension holds the COLUMN region — an
+        # unguarded OR would serve those mislabeled siblings.
+        conds.append(
+            "(region = :region OR ((region IS NULL OR btrim(region) = '')"
+            " AND dims->>'admin_region' = :region))")
         params["region"] = region
     if start_year is not None or end_year is not None:
         conds.append("data_year BETWEEN :sy AND :ey")

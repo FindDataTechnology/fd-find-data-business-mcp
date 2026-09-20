@@ -163,10 +163,30 @@ class TestReadUnit:
         assert dbname == "yearbook_catalog"
         assert "DISTINCT ON (region, data_year)" in sql
         assert "edition_year DESC NULLS LAST" in sql
-        assert "indicator_id = :iid" in sql and "region = :region" in sql
+        assert "indicator_id = :iid" in sql
+        assert "(region = :region OR ((region IS NULL OR btrim(region) = '')" in sql
+        assert "dims->>'admin_region' = :region))" in sql
         assert "data_year BETWEEN :sy AND :ey" in sql
-        assert "table_id" not in sql and "dims" not in sql and "table_cells" not in sql
+        assert "table_id" not in sql and "table_cells" not in sql
         assert params == {"iid": 7, "region": "浙江省", "sy": 2000, "ey": 2020, "lim": 201}
+
+    def test_sql_numeric_row_wins_edition_ties(self, monkeypatch):
+        fake = FakeDomain([])
+        monkeypatch.setattr(ty, "domain_query", fake)
+        ty.yearbook_read(7)
+        sql = fake.calls[0][1]
+        i_edition = sql.index("edition_year DESC NULLS LAST")
+        i_numeric = sql.index("(value_num IS NULL)")
+        i_id = sql.index(", id", i_numeric)
+        assert i_edition < i_numeric < i_id  # numeric rows win ties, id breaks the rest
+
+    def test_no_region_argument_means_no_region_filter(self, monkeypatch):
+        fake = FakeDomain([])
+        monkeypatch.setattr(ty, "domain_query", fake)
+        ty.yearbook_read(7)  # no region filter at all
+        sql = fake.calls[0][1]
+        assert "admin_region" not in sql
+        assert "region" not in fake.calls[0][2]
 
     def test_open_ended_year_bounds(self, monkeypatch):
         fake = FakeDomain([])
@@ -268,15 +288,49 @@ class TestReadIntegration:
         assert r == {"results": [], "count": 0, "truncated": False}
         assert "status" not in r
 
+    def test_regression_linxiang_numeric_value_over_annotation(self):
+        # Real regression (2026-09-20): this cell used to serve "Linxiang
+        # City" — the English annotation sibling — non-deterministically.
+        # The source table flattens one row into an annotation + total +
+        # sub-measures; the fix pins the first numeric sibling (the source
+        # row's total, 346.19 亿) deterministically. 3461901.12 =
+        # 427614.71 + 1400621.82 + 1633664.59 (一/二/三产), a consistency
+        # anchor that this is the 合计 row.
+        r = ty.yearbook_read(12209, region="临湘市", start_year=2023, end_year=2023)
+        assert r["count"] == 1, r
+        assert r["results"][0]["value"] == pytest.approx(3461901.11748462)
+
+    def test_province_series_via_dimension_guard(self):
+        # 广东's GDP series lives with an EMPTY region column and the
+        # province in dims.admin_region. Anchors: 2023=135673.2,
+        # 2024=141633.8 (亿元).
+        r = ty.yearbook_read(12209, region="广东", start_year=2023, end_year=2024)
+        assert r["count"] == 2, r
+        vals = {row["year"]: row["value"] for row in r["results"]}
+        assert vals[2023] == pytest.approx(135673.2)
+        assert vals[2024] == pytest.approx(141633.8)
+
+    def test_conflicting_column_region_not_overridden_by_dimension(self):
+        # Cross-region comparison tables keep ANOTHER region in the column
+        # (e.g. region='江苏' with dims.admin_region='广东'): the guard must
+        # never serve those rows for a 广东 query.
+        r = ty.yearbook_read(12209, region="广东", start_year=2004, end_year=2008)
+        assert isinstance(r.get("results"), list), r
+        for row in r["results"]:
+            assert (row["region"] or "").strip() in ("", "广东"), row
+
     def test_read_query_plan_is_index_shaped(self):
         iid, region, ymin, ymax = _discover_series()
         rows = ty.domain_query("yearbook_catalog", """
             EXPLAIN SELECT DISTINCT ON (region, data_year)
                    data_year, region, value_num, value, unit
             FROM indicator_values
-            WHERE indicator_id = :iid AND region = :region
+            WHERE indicator_id = :iid
+              AND (region = :region OR ((region IS NULL OR btrim(region) = '')
+                   AND dims->>'admin_region' = :region))
               AND data_year BETWEEN :sy AND :ey
-            ORDER BY region, data_year, edition_year DESC NULLS LAST
+            ORDER BY region, data_year, edition_year DESC NULLS LAST,
+                     (value_num IS NULL), id
         """, {"iid": iid, "region": region, "sy": ymin, "ey": ymax})
         assert isinstance(rows, list), rows
         plan = "\n".join(r["QUERY PLAN"] for r in rows)

@@ -242,9 +242,9 @@ def graph_search(
     return {"error": f"Unhandled algorithm: {algorithm}"}
 
 
-# --- Domain federation: yearbook + law (windows-admin data machine) ----------
+# --- Domain federation: yearbook + law + world bank + GTA + city panel -------
 # Read-only federation over FDBIZ_DOMAIN_PG_URL. Fail-soft by design: when the
-# data machine is down these four tools return {"status": "domain_unavailable"}
+# data machine is down these tools return {"status": "domain_unavailable"}
 # while every core tool above is unaffected (separate engines and timeouts).
 
 @mcp.tool
@@ -306,6 +306,107 @@ def law_read(law_id: int) -> dict:
     from fd_find_data_business_mcp.tools_law import law_read as _impl
 
     return _strip(_impl(law_id))
+
+
+@mcp.tool
+def wb_search_indicators(query: str, limit: int = 50) -> dict:
+    """Search World Bank (WDI) indicators by fuzzy name, topic, or code.
+
+    Returns {results: [{code, name, name_en, topic, unit, brand}], count,
+    truncated}. Chinese and English names both work. If the domain store is
+    unreachable, returns {"status": "domain_unavailable"} instead of failing.
+    """
+    from fd_find_data_business_mcp.tools_wb import (
+        wb_search_indicators as _impl)
+
+    return _strip(_impl(query, limit))
+
+
+@mcp.tool
+def wb_read(
+    indicator_code: str,
+    countries: list[str],
+    start_year: int | None = None,
+    end_year: int | None = None,
+    limit: int = 600,
+) -> dict:
+    """Read a World Bank indicator's annual series for a list of countries.
+
+    ``countries`` accepts ISO3 codes (CHN) or Chinese names (中国). Returns
+    {results: [{year, country, country_name, value, unit, brand}], count,
+    truncated}; missing country-year cells are absent (truthful, never
+    fabricated); an unknown indicator or country returns an empty list.
+    """
+    from fd_find_data_business_mcp.tools_wb import wb_read as _impl
+
+    return _strip(_impl(indicator_code, countries, start_year, end_year, limit))
+
+
+@mcp.tool
+def gta_search_variables(query: str, limit: int = 50) -> dict:
+    """Search GTA listed-company panel variables by fuzzy Chinese label or code.
+
+    Returns {results: [{code, label, brand}], count, truncated} — storage
+    identity (table, sub-library) is not exposed. If the domain store is
+    unreachable, returns {"status": "domain_unavailable"}.
+    """
+    from fd_find_data_business_mcp.tools_gta import (
+        gta_search_variables as _impl)
+
+    return _strip(_impl(query, limit))
+
+
+@mcp.tool
+def gta_read(
+    variable: str,
+    start_year: int | None = None,
+    end_year: int | None = None,
+    firm_ids: list[int] | None = None,
+    limit: int = 200,
+) -> dict:
+    """Read one GTA panel variable's firm-year values.
+
+    Returns {results: [{firm_id, firm, year, value, brand}], count,
+    truncated}, ordered by year then firm; an unknown variable returns
+    {"status": "unknown_variable"}; an empty year range is a truthful empty
+    list. Use gta_search_variables first to find variable codes.
+    """
+    from fd_find_data_business_mcp.tools_gta import gta_read as _impl
+
+    return _strip(_impl(variable, start_year, end_year, firm_ids, limit))
+
+
+@mcp.tool
+def city_search_variables(query: str, limit: int = 50) -> dict:
+    """Search China city-panel variables by fuzzy Chinese name or code.
+
+    Returns {results: [{code, label, unit, brand}], count, truncated}. If
+    the domain store is unreachable, returns {"status": "domain_unavailable"}.
+    """
+    from fd_find_data_business_mcp.tools_city import (
+        city_search_variables as _impl)
+
+    return _strip(_impl(query, limit))
+
+
+@mcp.tool
+def city_read(
+    variable: str,
+    city: str | None = None,
+    start_year: int | None = None,
+    end_year: int | None = None,
+    limit: int = 2000,
+) -> dict:
+    """Read one city-panel variable's city-year values (297 cities, 2000-2024).
+
+    ``city`` accepts a city code or Chinese name. Returns
+    {results: [{year, city_code, city_name, value, brand}], count,
+    truncated}; an unknown variable returns {"status": "unknown_variable"};
+    a filter with no data is a truthful empty list.
+    """
+    from fd_find_data_business_mcp.tools_city import city_read as _impl
+
+    return _strip(_impl(variable, city, start_year, end_year, limit))
 
 
 # --- Entry point ------------------------------------------------------------

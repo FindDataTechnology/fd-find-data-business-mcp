@@ -11,7 +11,16 @@ requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "FindDataTechnology" }]
 dependencies = [
-    "fd-open-data-mcp",
+    # [data]: fetch adapters — read_range cold-range fills dispatch through
+    # them. [search]: sentence-transformers — ai_search's vector search.
+    # The image sits on the fd-open-data-mcp:torch base, which already
+    # provides the torch CPU build and the baked embedding model.
+    # Floor: 0.5.21 is the first release whose schema gate resolves the
+    # revision chain from an installed package (this image has no source
+    # checkout); 0.5.20 and older resolve the alembic library's own directory
+    # instead and fail every core tool at startup. Failing the build on a
+    # stale version beats shipping that image.
+    "fd-open-data-mcp[data,search]>=0.5.21",
     "fastmcp>=2.0",
     "click",
     "uvicorn",

@@ -19,18 +19,24 @@ no `source_used` / `real_source_used` key ever reaches a client.
 | `yearbook_read` | Annual series for a yearbook indicator, optionally one region and year range (latest edition wins). |
 | `law_search` | Fuzzy-search Chinese laws/regulations by title with optional category filter. |
 | `law_read` | Full text + metadata of one law by id. |
+| `wb_search_indicators` | Fuzzy-search World Bank (WDI) indicators by Chinese/English name or code. |
+| `wb_read` | Annual series for a WDI indicator across countries (ISO3 or Chinese name). |
+| `gta_search_variables` | Fuzzy-search GTA listed-company panel variables (1,000+ financial-report indicators). |
+| `gta_read` | Firm-year values for one GTA panel variable. |
+| `city_search_variables` | Fuzzy-search China city-panel variables. |
+| `city_read` | City-year values for one city-panel variable (297 cities, 2000–2024). |
 
-## Domain federation (yearbook / law)
+## Domain federation (yearbook / law / world bank / GTA / city panel)
 
-The four domain tools read the Windows data machine's PostgreSQL in place,
+The ten domain tools read the Windows data machine's PostgreSQL in place,
 read-only, via `FDBIZ_DOMAIN_PG_URL` (e.g.
 `postgresql://fdbiz_ro:***@100.64.0.5:5432/postgres`; role `fdbiz_ro` has
-SELECT-only grants on `yearbook_catalog` and `law_db`). If that machine is
-down, the domain tools return `{"status": "domain_unavailable"}` while all
-core tools are unaffected. Optional tuning env: `FDBIZ_DOMAIN_CONNECT_TIMEOUT`
-(default 5s), `FDBIZ_DOMAIN_STATEMENT_TIMEOUT_MS` (default 15000),
-`FDBIZ_DOMAIN_DEBUG` (include truncated error text in unavailability
-responses).
+SELECT-only grants on `yearbook_catalog`, `law_db`, `world_bank`, `gta_panel`
+and `china_city_panel`). If that machine is down, the domain tools return
+`{"status": "domain_unavailable"}` while all core tools are unaffected.
+Optional tuning env: `FDBIZ_DOMAIN_CONNECT_TIMEOUT` (default 5s),
+`FDBIZ_DOMAIN_STATEMENT_TIMEOUT_MS` (default 15000), `FDBIZ_DOMAIN_DEBUG`
+(include truncated error text in unavailability responses).
 
 ## Install
 
