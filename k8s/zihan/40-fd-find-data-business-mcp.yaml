@@ -31,7 +31,7 @@ spec:
     spec:
       containers:
         - name: fd-find-data-business-mcp
-          image: 100.64.0.8:30880/finddata-business/fd-find-data-business-mcp:sha-172f6b1
+          image: 100.64.0.8:30880/finddata-business/fd-find-data-business-mcp:sha-6a03854
           imagePullPolicy: Always
           ports:
             - name: mcp
@@ -39,13 +39,17 @@ spec:
           envFrom:
             - secretRef:
                 name: fd-mcp-env
+          # This image carries torch + sentence-transformers + the baked
+          # embedding model (ai_search loads it in-process); the previous
+          # 512Mi limit was sized for the pre-torch image and would OOM on
+          # the first vector search.
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
-            limits:
-              cpu: "1000m"
+              cpu: 200m
               memory: 512Mi
+            limits:
+              cpu: "1500m"
+              memory: 1Gi
           startupProbe:
             tcpSocket:
               port: mcp
