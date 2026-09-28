@@ -31,7 +31,7 @@ spec:
     spec:
       containers:
         - name: fd-find-data-business-mcp
-          image: 100.64.0.8:30880/finddata-business/fd-find-data-business-mcp:sha-a778647
+          image: 100.64.0.8:30880/finddata-business/fd-find-data-business-mcp:sha-80098e2
           imagePullPolicy: Always
           ports:
             - name: mcp
