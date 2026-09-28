@@ -193,10 +193,11 @@ def graph_search(
 ) -> dict:
     """Entity-relationship graph queries (NetworkX): bfs, dfs, neighbors,
     shortest_path, subgraph, ego_graph, statistics."""
-    from fd_open_data_mcp.graph.manager import EntityGraphManager
+    # Shared singleton engine (same TTL rules as fd-open-data-mcp; the graph
+    # is not rebuilt between calls — spec semantic-search delegated retrieval).
+    from fd_open_data_mcp import engines
 
-    db = get_database()
-    gm = EntityGraphManager(db.database_url)
+    gm = engines.get_graph_manager()
     valid = {"bfs", "dfs", "neighbors", "shortest_path", "subgraph", "ego_graph", "statistics"}
     if algorithm not in valid:
         return {"error": f"Invalid algorithm: {algorithm}. Valid: {sorted(valid)}"}
