@@ -312,6 +312,88 @@ def law_read(law_id: int) -> dict:
 
 
 @mcp.tool
+def legal_docs_search(
+    title_query: str,
+    source: str | None = None,
+    doc_type: str | None = None,
+    limit: int = 50,
+) -> dict:
+    """Search the authoritative legal-documents corpus by fuzzy title.
+
+    Covers five crawled sources: gov-rules-library (部门/地方规章),
+    mfa-treaty-library (条约), ccdi-supervisory-regulations (纪检监察
+    法规), rmfyalk-case-library (人民法院案例库), party-regulation-library
+    (党内法规). Filter by ``source`` (exact five-source code) and/or
+    ``doc_type``. Returns metadata only ({results: [{id, title, source,
+    source_label_zh, doc_type, status, authority, language, published_at,
+    effective_at, has_content, brand}], count, truncated}); fetch full text
+    with legal_docs_read. An unknown source code returns
+    {"status": "invalid_filter", "valid_sources": [...]}.
+    """
+    from fd_find_data_business_mcp.tools_legal_docs import (
+        legal_docs_search as _impl)
+
+    return _strip(_impl(title_query, source, doc_type, limit))
+
+
+@mcp.tool
+def legal_docs_read(doc_id: int) -> dict:
+    """Read one legal document's full text and metadata by id (from legal_docs_search).
+
+    Returns metadata + {content_available, content?, brand}. When the body
+    was never fetched (source-side async rendering or oversized attachment —
+    most ccdi-supervisory entries), the response carries
+    ``content_available: false`` with a note and no ``content`` key; it is
+    never an error and never an empty string. An unknown id returns
+    {"status": "not_found"}.
+    """
+    from fd_find_data_business_mcp.tools_legal_docs import (
+        legal_docs_read as _impl)
+
+    return _strip(_impl(doc_id))
+
+
+@mcp.tool
+def guide_cases_search(
+    title_query: str,
+    doc_type: str | None = None,
+    reference_status: str | None = None,
+    limit: int = 50,
+) -> dict:
+    """Search Supreme People's Court guiding cases and batch notices by fuzzy title.
+
+    ``doc_type`` filters case/notice; ``reference_status`` filters
+    有效/不再参照 (withdrawn cases stay searchable — the notice withdraws
+    reference effect, not the document). Every row carries
+    ``reference_status`` so consumers can see effect at a glance. Returns
+    {results: [{source_id, case_no, doc_type, title, listed_at, publish_at,
+    source, reference_status, brand}], count, truncated}; fetch structured
+    sections with guide_cases_read. Invalid filter values return
+    {"status": "invalid_filter"} with the accepted values.
+    """
+    from fd_find_data_business_mcp.tools_guide_cases import (
+        guide_cases_search as _impl)
+
+    return _strip(_impl(title_query, doc_type, reference_status, limit))
+
+
+@mcp.tool
+def guide_cases_read(case_id: str) -> dict:
+    """Read one guiding case or notice by source_id (from guide_cases_search).
+
+    Returns full metadata + the published structured sections
+    (keyword/gist/facts/result/reasoning/statutes — unpublished sections are
+    absent, never fabricated) + ``body`` full text + ``reference_status``
+    with ``reference_note`` (the notice number that declared 不再参照).
+    An unknown id returns {"status": "not_found"}.
+    """
+    from fd_find_data_business_mcp.tools_guide_cases import (
+        guide_cases_read as _impl)
+
+    return _strip(_impl(case_id))
+
+
+@mcp.tool
 def wb_search_indicators(query: str, limit: int = 50) -> dict:
     """Search World Bank (WDI) indicators by fuzzy name, topic, or code.
 

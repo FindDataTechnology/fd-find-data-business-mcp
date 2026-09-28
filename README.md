@@ -19,6 +19,10 @@ no `source_used` / `real_source_used` key ever reaches a client.
 | `yearbook_read` | Annual series for a yearbook indicator, optionally one region and year range (latest edition wins). |
 | `law_search` | Fuzzy-search Chinese laws/regulations by title with optional category filter. |
 | `law_read` | Full text + metadata of one law by id. |
+| `legal_docs_search` | Fuzzy-search the authoritative-sources corpus (gov rules / MFA treaties / CCDI / rmfyalk / party regulations) with source & doc_type filters. |
+| `legal_docs_read` | One legal document by id; honest `content_available: false` when the body was never fetched. |
+| `guide_cases_search` | Fuzzy-search SPC guiding cases & notices; filter by doc_type and reference status (有效/不再参照). |
+| `guide_cases_read` | One guiding case by source_id: six structured sections + body + reference status. |
 | `wb_search_indicators` | Fuzzy-search World Bank (WDI) indicators by Chinese/English name or code. |
 | `wb_read` | Annual series for a WDI indicator across countries (ISO3 or Chinese name). |
 | `gta_search_variables` | Fuzzy-search GTA listed-company panel variables (1,000+ financial-report indicators). |
