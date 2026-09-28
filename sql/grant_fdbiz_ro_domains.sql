@@ -20,6 +20,8 @@
 GRANT CONNECT ON DATABASE world_bank       TO fdbiz_ro;
 GRANT CONNECT ON DATABASE gta_panel        TO fdbiz_ro;
 GRANT CONNECT ON DATABASE china_city_panel TO fdbiz_ro;
+GRANT CONNECT ON DATABASE wenshu_db        TO fdbiz_ro;
+GRANT CONNECT ON DATABASE ia35             TO fdbiz_ro;
 
 \connect world_bank
 GRANT USAGE ON SCHEMA public TO fdbiz_ro;
@@ -36,4 +38,14 @@ GRANT USAGE ON SCHEMA public TO fdbiz_ro;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO fdbiz_ro;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO fdbiz_ro;
 
-\echo 'grants applied: world_bank, gta_panel, china_city_panel -> fdbiz_ro (SELECT only)'
+\connect wenshu_db
+GRANT USAGE ON SCHEMA public TO fdbiz_ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO fdbiz_ro;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO fdbiz_ro;
+
+\connect ia35
+GRANT USAGE ON SCHEMA public TO fdbiz_ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO fdbiz_ro;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO fdbiz_ro;
+
+\echo 'grants applied: world_bank, gta_panel, china_city_panel, wenshu_db, ia35 -> fdbiz_ro (SELECT only)'

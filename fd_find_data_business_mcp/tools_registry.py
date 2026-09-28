@@ -4,11 +4,12 @@
 unified indicator registry (``fd_open_data.registry_entries``) has
 registered and how many of those are verified, alongside the census anchor
 counts (``actual_in_source``) and the sources that are deliberately
-outside the registry: phase-2 sources (ia35, wenshu_db — not yet
-registered) and law_db (document-domain caliber: laws / chunks / guide
-cases are document assets, not indicators). Live counts come from one
-GROUP BY query; the boundary declarations are static. Fail-soft: when the
-registry is unreachable the static part is served with a note and live
+outside the registry: ia35 and wenshu_db (served since 2026-09 as
+entity-domain / document-domain calibers — registered 0 by design, not
+indicator sources) and law_db (document-domain caliber: laws / chunks /
+guide cases are document assets, not indicators). Live counts come from
+one GROUP BY query; the boundary declarations are static. Fail-soft: when
+the registry is unreachable the static part is served with a note and live
 counts left null.
 """
 from __future__ import annotations
@@ -44,11 +45,15 @@ _STATIC_SOURCES: dict[str, dict[str, Any]] = {
         "label_zh": "FindData 镜像活跃概念", "phase": "第一期（已登记）",
         "actual_in_source": 452},
     "ia35": {
-        "label_zh": "工商注册（161G，实体为主）", "phase": "第二期（未登记）",
-        "actual_in_source": None, "note": "第二期源，未登记"},
+        "label_zh": "工商注册（2.88 亿行，逐年快照）", "phase": "已接入（实体域口径）",
+        "actual_in_source": None,
+        "note": "2026-09 起服务化：企业档案检索 + 注册量聚合；指标登记 0 属预期，"
+                "reg_counts 进指标注册目录另行立项"},
     "wenshu_db": {
-        "label_zh": "裁判文书（增量暂停）", "phase": "第二期（未登记）",
-        "actual_in_source": None, "note": "第二期源，未登记；增量暂停"},
+        "label_zh": "裁判文书（增量暂停）", "phase": "已接入（文档域口径）",
+        "actual_in_source": None,
+        "note": "2026-09 起服务化：裁判文书检索 + 全文（正文在对象存储）；"
+                "指标登记 0 属预期；存量快照，增量暂停"},
     "law_db": {
         "label_zh": "法律文档域", "phase": "文档域（非指标口径）",
         "actual_in_source": 0,

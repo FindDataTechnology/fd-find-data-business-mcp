@@ -85,17 +85,20 @@ class TestCoverageUnit:
         assert by["fd_open_data"]["verified"] == 246
         assert by["fd_open_data"]["unverified"] == 206
 
-    def test_phase2_sources_declared_unregistered(self, monkeypatch):
+    def test_served_nonindicator_sources_declared(self, monkeypatch):
+        # Since the 2026-09 phase-2 rollout, ia35 / wenshu_db are SERVED by
+        # the MCP but remain outside the indicator-registry caliber — the
+        # declaration says so instead of claiming "not yet registered".
         monkeypatch.setattr(tr, "domain_query", FakeDomain(_first_batch()))
         r = tr.registry_coverage()
         by = _by_source(r["results"])
         ia35 = by["ia35"]
-        assert ia35["phase"] == "第二期（未登记）"
+        assert ia35["phase"] == "已接入（实体域口径）"
         assert ia35["registered"] == 0 and ia35["verified"] == 0
         assert ia35["coverage"] is None  # no census anchor -> not computable
         assert "工商注册" in ia35["label_zh"]
         wenshu = by["wenshu_db"]
-        assert wenshu["registered"] == 0 and wenshu["phase"] == "第二期（未登记）"
+        assert wenshu["registered"] == 0 and wenshu["phase"] == "已接入（文档域口径）"
         assert "裁判文书" in wenshu["label_zh"]
 
     def test_law_db_document_domain_caliber_is_expected_zero(self, monkeypatch):

@@ -394,6 +394,102 @@ def guide_cases_read(case_id: str) -> dict:
 
 
 @mcp.tool
+def wenshu_search(
+    title_query: str,
+    doc_type: str | None = None,
+    province: str | None = None,
+    start_year: int | None = None,
+    end_year: int | None = None,
+    limit: int = 50,
+) -> dict:
+    """Search China court judgments by fuzzy title or case number.
+
+    Coverage disclosure: this is a STATIC SNAPSHOT — incremental crawling is
+    suspended and the corpus has known historical gaps (including 2011–2023);
+    it is not the full national corpus. Ultra-broad single-character queries
+    may exceed the query budget — add a year/province/doc_type filter or a
+    selective term. Filters match decoded text (document type, province) and
+    a closed judgment-year range. Returns {results: [{doc_id, case_no,
+    title, court, cause, province, city, case_type, doc_type, procedure,
+    court_level, judgment_year, judgment_result, publish_date, has_body,
+    brand}], count, truncated}; dictionary reference keys never appear.
+    Fetch full text with wenshu_read.
+    """
+    from fd_find_data_business_mcp.tools_wenshu import wenshu_search as _impl
+
+    return _strip(_impl(title_query, doc_type, province, start_year,
+                        end_year, limit))
+
+
+@mcp.tool
+def wenshu_read(doc_id: str) -> dict:
+    """Read one court judgment's decoded metadata and, when captured, full text.
+
+    Returns metadata + {body_shape, content_available, content?, brand}.
+    Judgments ingested metadata-only (body_shape=none) carry
+    ``content_available: false`` honestly; a temporarily unreachable body
+    store degrades to metadata with a note, never an error. An unknown id
+    returns {"status": "not_found"}.
+    """
+    from fd_find_data_business_mcp.tools_wenshu import wenshu_read as _impl
+
+    return _strip(_impl(doc_id))
+
+
+@mcp.tool
+def ia35_company_search(
+    name_prefix: str | None = None,
+    credit_code: str | None = None,
+    limit: int = 20,
+) -> dict:
+    """Search China business-registry firm profiles by name prefix or exact credit code.
+
+    Corpus caliber: ia35 is a STATIC SNAPSHOT accumulated as yearly batches
+    (the source column IS the batch year). Credit-code lookup serves ALL
+    batches and returns the latest batch's row (the firm's current profile);
+    name-prefix search serves the LATEST SNAPSHOT YEAR only (default 2023,
+    env FDBIZ_IA35_SNAPSHOT_YEAR) — firms absent from that batch are
+    reachable by code but not by name. Profiles carry decoded business
+    scope / address / former names; dictionary reference keys never appear.
+    Returns {results: [{credit_code, name, legal_rep, reg_capital,
+    paid_capital, est_date, est_year, status, company_type, registrar,
+    province, city, county, address, business_scope, former_names, tags,
+    batch_year, brand}], count, truncated, snapshot_year?}.
+    """
+    from fd_find_data_business_mcp.tools_firms import (
+        ia35_company_search as _impl)
+
+    return _strip(_impl(name_prefix, credit_code, limit))
+
+
+@mcp.tool
+def ia35_reg_counts_read(
+    start_year: int | None = None,
+    end_year: int | None = None,
+    province: str | None = None,
+    industry: str | None = None,
+    limit: int = 500,
+) -> dict:
+    """Read new-firm registration counts by year range, province, industry.
+
+    Serves the reg_counts aggregate (founded-year x region x industry
+    section -> new firm count). Source years mix true years with
+    spreadsheet serial dates; serials are normalized to calendar years
+    (e.g. 32741 -> 1989) and unconvertible rows are dropped with the count
+    disclosed in the response note — a five-digit pseudo-year is never
+    returned. Cells with no aggregate row are absent, never zero-filled.
+    Province+year filters use the (province, year) index; province-only
+    queries may exceed the query budget. Returns {results: [{year,
+    province, city, county, industry, industry_code, new_firms, brand}],
+    count, truncated, note?}.
+    """
+    from fd_find_data_business_mcp.tools_firms import (
+        ia35_reg_counts_read as _impl)
+
+    return _strip(_impl(start_year, end_year, province, industry, limit))
+
+
+@mcp.tool
 def wb_search_indicators(query: str, limit: int = 50) -> dict:
     """Search World Bank (WDI) indicators by fuzzy name, topic, or code.
 

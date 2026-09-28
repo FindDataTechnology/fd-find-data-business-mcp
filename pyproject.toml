@@ -24,6 +24,10 @@ dependencies = [
     "fastmcp>=2.0",
     "click",
     "uvicorn",
+    # [wenshu]: judgment bodies live in zstd-compressed RustFS blocks —
+    # boto3 fetches the S3-compatible object, zstandard decompresses it.
+    "boto3",
+    "zstandard",
 ]
 
 [project.urls]

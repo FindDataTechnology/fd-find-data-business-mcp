@@ -23,6 +23,10 @@ no `source_used` / `real_source_used` key ever reaches a client.
 | `legal_docs_read` | One legal document by id; honest `content_available: false` when the body was never fetched. |
 | `guide_cases_search` | Fuzzy-search SPC guiding cases & notices; filter by doc_type and reference status (有效/不再参照). |
 | `guide_cases_read` | One guiding case by source_id: six structured sections + body + reference status. |
+| `wenshu_search` | Fuzzy-search China court judgments (title/case no.) with doc_type/province/year filters. Static snapshot — suspended increments, known gaps incl. 2011–2023. |
+| `wenshu_read` | One judgment by doc_id: decoded metadata + full text from the object-store block (honest content-missing states). |
+| `ia35_company_search` | Firm profiles by name prefix (latest snapshot year) or exact credit code (all yearly batches, latest row wins). |
+| `ia35_reg_counts_read` | New-firm registration counts by year/province/industry; spreadsheet-serial years normalized, no zero-filling. |
 | `wb_search_indicators` | Fuzzy-search World Bank (WDI) indicators by Chinese/English name or code. |
 | `wb_read` | Annual series for a WDI indicator across countries (ISO3 or Chinese name). |
 | `gta_search_variables` | Fuzzy-search GTA listed-company panel variables (1,000+ financial-report indicators). |
@@ -36,12 +40,35 @@ no `source_used` / `real_source_used` key ever reaches a client.
 The ten domain tools read the Windows data machine's PostgreSQL in place,
 read-only, via `FDBIZ_DOMAIN_PG_URL` (e.g.
 `postgresql://fdbiz_ro:***@100.64.0.5:5432/postgres`; role `fdbiz_ro` has
-SELECT-only grants on `yearbook_catalog`, `law_db`, `world_bank`, `gta_panel`
-and `china_city_panel`). If that machine is down, the domain tools return
-`{"status": "domain_unavailable"}` while all core tools are unaffected.
-Optional tuning env: `FDBIZ_DOMAIN_CONNECT_TIMEOUT` (default 5s),
+SELECT-only grants on `yearbook_catalog`, `law_db`, `world_bank`, `gta_panel`,
+`china_city_panel`, `wenshu_db` and `ia35`). If that machine is down, the domain
+tools return `{"status": "domain_unavailable"}` while all core tools are
+unaffected. Optional tuning env: `FDBIZ_DOMAIN_CONNECT_TIMEOUT` (default 5s),
 `FDBIZ_DOMAIN_STATEMENT_TIMEOUT_MS` (default 15000), `FDBIZ_DOMAIN_DEBUG`
 (include truncated error text in unavailability responses).
+
+### Wenshu judgment bodies (object store)
+
+`wenshu_read` fetches full text from the zstd-compressed month blocks on
+RustFS (S3-compatible) via boto3: `FDBIZ_RUSTFS_ENDPOINT` (default
+`http://100.64.0.11:9000`), `FDBIZ_RUSTFS_ACCESS_KEY`, `FDBIZ_RUSTFS_SECRET_KEY`,
+`FDBIZ_RUSTFS_REGION` (default `us-east-1`), `FDBIZ_RUSTFS_WENSHU_BUCKET`
+(default `wenshu`). When the store is unreachable, reads degrade to decoded
+metadata with an honest content-missing note. Corpus caliber: static snapshot
+(incremental crawling suspended; known gaps incl. 2011–2023), ~10.8M
+judgments, 99.9% with captured bodies (html/text).
+
+### ia35 firm registry (yearly snapshot caliber)
+
+The `ia35` corpus (firms_full, ~288M rows) accumulates one row per firm per
+batch year — the source column IS the batch year (1995–2023). Name-prefix
+search serves the latest snapshot year only (`FDBIZ_IA35_SNAPSHOT_YEAR`,
+default `2023`, backed by a partial index on that literal); credit-code
+lookup serves all batches and returns the newest batch row. **Ops note:**
+when a new batch year is loaded, rebuild the partial index on the new year
+literal and update the env default together. `ia35_reg_counts_read`
+normalizes spreadsheet-serial years (epoch 1899-12-30) in the founded-year
+column; unconvertible rows are dropped with the count disclosed.
 
 ### Indicator identity: the unified indicator registry
 
