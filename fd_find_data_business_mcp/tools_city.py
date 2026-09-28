@@ -5,7 +5,9 @@ name; ``city_read`` serves one variable's city-year values, optionally
 filtered by one city (code or Chinese name) and a year range. The wide
 panel table (panel_raw, v001..v209) is only ever queried with an
 allowlisted variable code. Both tools go through the fail-soft domain layer
-and brand every served row ``finddata``.
+and brand every served row ``finddata``. Search rows additionally carry
+the unified indicator-registry identity (``native_code`` +
+``semantic_code``), enriched fail-soft.
 """
 from __future__ import annotations
 
@@ -13,9 +15,13 @@ import re
 from decimal import Decimal
 from typing import Any
 
-from fd_find_data_business_mcp.domain import query as domain_query
+from fd_find_data_business_mcp.domain import (
+    query as domain_query, registry_semantic_codes)
 
 _DB = "china_city_panel"
+
+#: Registry anchor for this store: native_code is the var_id (v001..v209).
+_REGISTRY_ANCHOR = ("china_city_panel", "variable_catalog", "var_id")
 
 _VAR_ID_RE = re.compile(r"^v\d{3}$")
 
@@ -79,8 +85,11 @@ def city_search_variables(query_text: str, limit: int = 50) -> dict:
     """Search city-panel variables by fuzzy Chinese name or code.
 
     Returns ``{results, count, truncated}`` with rows
-    ``{code, label, unit, brand}``; a domain failure is passed through
-    unchanged.
+    ``{code, label, unit, native_code, semantic_code, brand}``:
+    ``native_code`` repeats the registry anchor (the var_id) and
+    ``semantic_code`` carries the unified indicator-registry identity —
+    null when the entry is unverified or unregistered (the lookup fails
+    soft). A domain failure is passed through unchanged.
     """
     q = (query_text or "").strip()
     if not q:
@@ -92,10 +101,14 @@ def city_search_variables(query_text: str, limit: int = 50) -> dict:
     })
     if isinstance(rows, dict):
         return rows
+    page = rows[:limit]
+    native_codes = [r["code"] for r in page]
+    semantic = registry_semantic_codes(*_REGISTRY_ANCHOR, native_codes)
     results = [
         {"code": r["code"], "label": r["label"], "unit": r["unit"],
-         "brand": "finddata"}
-        for r in rows[:limit]
+         "native_code": r["code"],
+         "semantic_code": semantic.get(r["code"]), "brand": "finddata"}
+        for r in page
     ]
     return {"results": results, "count": len(results), "truncated": len(rows) > limit}
 

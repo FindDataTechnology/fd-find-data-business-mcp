@@ -49,6 +49,14 @@ def _search_row(code="b001101000", label="营业收入"):
     return {"code": code, "label": label}
 
 
+@pytest.fixture(autouse=True)
+def _no_live_registry(monkeypatch):
+    """Unit tests never touch the live registry: enrichment is stubbed to
+    return no mappings (semantic_code null). Registry-identity tests
+    re-patch ``registry_semantic_codes`` with a canned map."""
+    monkeypatch.setattr(tg, "registry_semantic_codes", lambda *a, **k: {})
+
+
 def _val_row(firm_id=1, firm="某公司", year=2023, value=100.5):
     return {"firm_id": firm_id, "firm": firm, "year": year, "value": value}
 
@@ -68,7 +76,9 @@ class TestSearchUnit:
         monkeypatch.setattr(tg, "domain_query", FakeDomain([[leaky]]))
         r = tg.gta_search_variables("营业收入")
         row = r["results"][0]
-        assert row == {"code": "b001101000", "label": "营业收入", "brand": "finddata"}
+        assert row == {"code": "b001101000", "label": "营业收入",
+                       "native_code": "b001101000", "semantic_code": None,
+                       "brand": "finddata"}
         assert not any(k in row for k in _FORBIDDEN)
 
     def test_truncation_flag(self, monkeypatch):
@@ -81,6 +91,39 @@ class TestSearchUnit:
         fail = {"status": "domain_unavailable", "detail": "OperationalError"}
         monkeypatch.setattr(tg, "domain_query", FakeDomain(fail))
         assert tg.gta_search_variables("x") == fail
+
+
+# --- Unit: registry identity enrichment ----------------------------------------
+
+class TestRegistryIdentity:
+    def test_lookup_uses_gta_anchor_and_uppercased_semantic(self, monkeypatch):
+        captured = {}
+
+        def fake_lookup(sdb, stab, scol, codes):
+            captured.update(sdb=sdb, stab=stab, scol=scol, codes=codes)
+            # GTA semantic codes are the UPPERCASED native name.
+            return {c: c.upper() for c in codes}
+
+        monkeypatch.setattr(tg, "registry_semantic_codes", fake_lookup)
+        monkeypatch.setattr(tg, "domain_query",
+                            FakeDomain([[_search_row(), _search_row(code="b001216000")]]))
+        r = tg.gta_search_variables("费用")
+        assert captured == {"sdb": "gta_panel", "stab": "variables",
+                            "scol": "name",
+                            "codes": ["b001101000", "b001216000"]}
+        by_code = {row["code"]: row for row in r["results"]}
+        assert by_code["b001101000"]["semantic_code"] == "B001101000"
+        assert by_code["b001101000"]["native_code"] == "b001101000"
+        assert by_code["b001101000"]["code"] == "b001101000"  # key kept
+
+    def test_registry_failure_serves_rows_with_null_semantic_code(self, monkeypatch):
+        monkeypatch.setattr(tg, "registry_semantic_codes", lambda *a, **k: {})
+        monkeypatch.setattr(tg, "domain_query", FakeDomain([[_search_row()]]))
+        r = tg.gta_search_variables("营业收入")
+        assert r["count"] == 1
+        row = r["results"][0]
+        assert row["native_code"] == "b001101000"
+        assert row["semantic_code"] is None
 
 
 # --- Unit: gta_read -----------------------------------------------------------

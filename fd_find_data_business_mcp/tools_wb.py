@@ -5,16 +5,21 @@
 a year range (country given as ISO3 code or Chinese name). Both go through
 the fail-soft domain layer and brand every served row ``finddata``; no
 table or provenance identity is emitted beyond the codes the consumer
-supplied.
+supplied. Search rows additionally carry the unified indicator-registry
+identity (``native_code`` + ``semantic_code``), enriched fail-soft.
 """
 from __future__ import annotations
 
 from decimal import Decimal
 from typing import Any
 
-from fd_find_data_business_mcp.domain import query as domain_query
+from fd_find_data_business_mcp.domain import (
+    query as domain_query, registry_semantic_codes)
 
 _DB = "world_bank"
+
+#: Registry anchor for this store: native_code is the WDI indicator code.
+_REGISTRY_ANCHOR = ("world_bank", "indicator", "code")
 
 _SEARCH_LIMIT_MAX = 200
 _READ_LIMIT_MAX = 5000  # 66y x N countries; bounded and truncation-marked
@@ -77,8 +82,11 @@ def wb_search_indicators(query_text: str, limit: int = 50) -> dict:
     Matches Chinese and English names, topics, and codes with
     ``ILIKE '%q%'``, ranking exact code/name matches first. Returns
     ``{results, count, truncated}`` with rows
-    ``{code, name, name_en, topic, unit, brand}``; a domain failure is
-    passed through unchanged.
+    ``{code, name, name_en, topic, unit, native_code, semantic_code,
+    brand}``: ``native_code`` repeats the registry anchor (the WDI code)
+    and ``semantic_code`` carries the unified indicator-registry identity —
+    null when the entry is unverified or unregistered (the lookup fails
+    soft). A domain failure is passed through unchanged.
     """
     q = (query_text or "").strip()
     if not q:
@@ -90,10 +98,14 @@ def wb_search_indicators(query_text: str, limit: int = 50) -> dict:
     })
     if isinstance(rows, dict):
         return rows
+    page = rows[:limit]
+    native_codes = [r["code"] for r in page]
+    semantic = registry_semantic_codes(*_REGISTRY_ANCHOR, native_codes)
     results = [
         {"code": r["code"], "name": r["name"], "name_en": r["name_en"],
-         "topic": r["topic"], "unit": r["unit"], "brand": "finddata"}
-        for r in rows[:limit]
+         "topic": r["topic"], "unit": r["unit"], "native_code": r["code"],
+         "semantic_code": semantic.get(r["code"]), "brand": "finddata"}
+        for r in page
     ]
     return {"results": results, "count": len(results), "truncated": len(rows) > limit}
 

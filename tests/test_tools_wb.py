@@ -47,6 +47,14 @@ def _ind_row(code="NY.GDP.PCAP.CD", name="人均GDP", name_en="GDP per capita"):
             "topic": "Economic Policy & Debt", "unit": "USD"}
 
 
+@pytest.fixture(autouse=True)
+def _no_live_registry(monkeypatch):
+    """Unit tests never touch the live registry: enrichment is stubbed to
+    return no mappings (semantic_code null). Registry-identity tests
+    re-patch ``registry_semantic_codes`` with a canned map."""
+    monkeypatch.setattr(tw, "registry_semantic_codes", lambda *a, **k: {})
+
+
 def _country_row(code="CHN", name_cn="中国"):
     return {"code": code, "name_cn": name_cn}
 
@@ -91,6 +99,39 @@ class TestSearchUnit:
         fail = {"status": "domain_unavailable", "detail": "OperationalError"}
         monkeypatch.setattr(tw, "domain_query", FakeDomain(fail))
         assert tw.wb_search_indicators("gdp") == fail
+
+
+# --- Unit: registry identity enrichment ----------------------------------------
+
+class TestRegistryIdentity:
+    def test_lookup_uses_wb_anchor_and_keeps_code_key(self, monkeypatch):
+        captured = {}
+
+        def fake_lookup(sdb, stab, scol, codes):
+            captured.update(sdb=sdb, stab=stab, scol=scol, codes=codes)
+            return {"NY.GDP.PCAP.CD": "WB.NY.GDP.PCAP.CD"}
+
+        monkeypatch.setattr(tw, "registry_semantic_codes", fake_lookup)
+        monkeypatch.setattr(tw, "domain_query",
+                            FakeDomain([[_ind_row(), _ind_row(code="SP.POP.TOTL")]]))
+        r = tw.wb_search_indicators("gdp")
+        assert captured == {"sdb": "world_bank", "stab": "indicator",
+                            "scol": "code",
+                            "codes": ["NY.GDP.PCAP.CD", "SP.POP.TOTL"]}
+        by_code = {row["code"]: row for row in r["results"]}
+        assert by_code["NY.GDP.PCAP.CD"]["semantic_code"] == "WB.NY.GDP.PCAP.CD"
+        assert by_code["NY.GDP.PCAP.CD"]["native_code"] == "NY.GDP.PCAP.CD"
+        assert by_code["SP.POP.TOTL"]["semantic_code"] is None
+        assert by_code["SP.POP.TOTL"]["native_code"] == "SP.POP.TOTL"
+
+    def test_registry_failure_serves_rows_with_null_semantic_code(self, monkeypatch):
+        monkeypatch.setattr(tw, "registry_semantic_codes", lambda *a, **k: {})
+        monkeypatch.setattr(tw, "domain_query", FakeDomain([[_ind_row()]]))
+        r = tw.wb_search_indicators("人均GDP")
+        assert r["count"] == 1
+        row = r["results"][0]
+        assert row["native_code"] == "NY.GDP.PCAP.CD"
+        assert row["semantic_code"] is None
 
 
 # --- Unit: wb_read ------------------------------------------------------------

@@ -251,8 +251,11 @@ def graph_search(
 def yearbook_search_indicators(query: str, limit: int = 50) -> dict:
     """Search FindData statistical-yearbook indicators by fuzzy name.
 
-    Returns {results: [{id, name, category, unit, brand}], count, truncated}.
-    Chinese or English partial names both work. If the yearbook store is
+    Returns {results: [{id, name, category, unit, native_code,
+    semantic_code, brand}], count, truncated}. Chinese or English partial
+    names both work. native_code repeats the registry anchor (the id) and
+    semantic_code carries the unified indicator-registry identity — null
+    when the entry is unverified or unregistered. If the yearbook store is
     unreachable, returns {"status": "domain_unavailable"} instead of failing.
     """
     from fd_find_data_business_mcp.tools_yearbook import (
@@ -312,8 +315,11 @@ def law_read(law_id: int) -> dict:
 def wb_search_indicators(query: str, limit: int = 50) -> dict:
     """Search World Bank (WDI) indicators by fuzzy name, topic, or code.
 
-    Returns {results: [{code, name, name_en, topic, unit, brand}], count,
-    truncated}. Chinese and English names both work. If the domain store is
+    Returns {results: [{code, name, name_en, topic, unit, native_code,
+    semantic_code, brand}], count, truncated}. Chinese and English names
+    both work. native_code repeats the registry anchor (the WDI code) and
+    semantic_code carries the unified indicator-registry identity — null
+    when the entry is unverified or unregistered. If the domain store is
     unreachable, returns {"status": "domain_unavailable"} instead of failing.
     """
     from fd_find_data_business_mcp.tools_wb import (
@@ -346,9 +352,13 @@ def wb_read(
 def gta_search_variables(query: str, limit: int = 50) -> dict:
     """Search GTA listed-company panel variables by fuzzy Chinese label or code.
 
-    Returns {results: [{code, label, brand}], count, truncated} — storage
-    identity (table, sub-library) is not exposed. If the domain store is
-    unreachable, returns {"status": "domain_unavailable"}.
+    Returns {results: [{code, label, native_code, semantic_code, brand}],
+    count, truncated} — storage identity (table, sub-library) is not
+    exposed. native_code repeats the registry anchor (the variable name;
+    GTA semantic codes are its UPPERCASED form) and semantic_code carries
+    the unified indicator-registry identity — null when the entry is
+    unverified or unregistered. If the domain store is unreachable, returns
+    {"status": "domain_unavailable"}.
     """
     from fd_find_data_business_mcp.tools_gta import (
         gta_search_variables as _impl)
@@ -380,7 +390,10 @@ def gta_read(
 def city_search_variables(query: str, limit: int = 50) -> dict:
     """Search China city-panel variables by fuzzy Chinese name or code.
 
-    Returns {results: [{code, label, unit, brand}], count, truncated}. If
+    Returns {results: [{code, label, unit, native_code, semantic_code,
+    brand}], count, truncated}. native_code repeats the registry anchor
+    (the var_id) and semantic_code carries the unified indicator-registry
+    identity — null when the entry is unverified or unregistered. If
     the domain store is unreachable, returns {"status": "domain_unavailable"}.
     """
     from fd_find_data_business_mcp.tools_city import (
@@ -407,6 +420,27 @@ def city_read(
     from fd_find_data_business_mcp.tools_city import city_read as _impl
 
     return _strip(_impl(variable, city, start_year, end_year, limit))
+
+
+@mcp.tool
+def registry_coverage() -> dict:
+    """Indicator-registry coverage per source (registration boundary).
+
+    Returns {results: [{source_db, label_zh, phase, registered, verified,
+    unverified, actual_in_source, coverage}], count, census_as_of}: live
+    registered/verified counts from the unified indicator registry
+    (fd_open_data.registry_entries) for the five registered sources
+    (world_bank, yearbook_catalog, gta_panel, china_city_panel,
+    fd_open_data mirror), plus the phase-2 unregistered sources (ia35
+    工商注册, wenshu_db 裁判文书) and law_db, which is document-domain
+    caliber (法条/切片/指导案例 are documents, not indicators — 0 entries
+    is expected). coverage = registered / actual_in_source against the
+    census anchors. Fail-soft: if the registry is unreachable the static
+    declarations are served with a note.
+    """
+    from fd_find_data_business_mcp.tools_registry import registry_coverage as _impl
+
+    return _strip(_impl())
 
 
 # --- Entry point ------------------------------------------------------------

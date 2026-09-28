@@ -104,3 +104,53 @@ def query(dbname: str, sql: str, params: dict[str, Any] | None = None) -> list[d
         if os.environ.get("FDBIZ_DOMAIN_DEBUG"):
             out["debug"] = str(exc)[:400]
         return out
+
+
+# --- Unified indicator registry (fd_open_data.registry_entries) ----------------
+#: The registry lives on the same host/user as the federated domain
+#: databases, in its own database. Domain tools enrich their search results
+#: with registry identity (semantic_code) via this separate lookup — never
+#: a cross-database JOIN inside the domain query itself.
+REGISTRY_DB = "fd_open_data"
+
+_REGISTRY_LOOKUP_SQL = """
+SELECT native_code, semantic_code
+FROM registry_entries
+WHERE source_db = :sdb
+  AND source_table = :stab
+  AND source_column = :scol
+  AND native_code = ANY(:codes)
+  AND verified
+  AND semantic_code IS NOT NULL
+"""
+
+
+def registry_semantic_codes(
+    source_db: str, source_table: str, source_column: str,
+    native_codes: list[str],
+) -> dict[str, str]:
+    """Map native codes to registry ``semantic_code`` (verified entries only).
+
+    One indexed anchor lookup against ``fd_open_data.registry_entries``.
+    Returns ``{}`` on any failure — the same fail-soft contract as
+    :func:`query` — so callers serve their rows with ``semantic_code:
+    None`` instead of failing. Unverified and unregistered anchors map to
+    nothing (the registry quality gate: unverified entries never surface a
+    semantic code). Never raises.
+    """
+    # Dedupe while preserving order; drop blanks/None. Casting to str keeps
+    # the yearbook anchor honest (its native_code is the integer id stored
+    # as text in the registry).
+    codes = [c for c in dict.fromkeys(
+        str(c) for c in native_codes if c is not None) if c != ""]
+    if not codes:
+        return {}
+    rows = query(REGISTRY_DB, _REGISTRY_LOOKUP_SQL, {
+        "sdb": source_db, "stab": source_table, "scol": source_column,
+        "codes": codes,
+    })
+    if not isinstance(rows, list):
+        # Fail-soft: domain_unavailable dict -> rows are served un-enriched.
+        return {}
+    return {r["native_code"]: r["semantic_code"]
+            for r in rows if r.get("semantic_code")}

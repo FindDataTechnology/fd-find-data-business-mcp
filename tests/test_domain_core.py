@@ -131,3 +131,53 @@ class TestEngineLifecycle:
         assert ca["connect_timeout"] == domain.CONNECT_TIMEOUT_S
         assert f"statement_timeout={domain.STATEMENT_TIMEOUT_MS}" in ca["options"]
         assert captured["pool_pre_ping"] is True
+
+
+class TestRegistryLookup:
+    """registry_semantic_codes: one anchor lookup, verified-only, fail-soft."""
+
+    def test_semantic_codes_without_env_return_empty(self):
+        # _isolate deletes FDBIZ_DOMAIN_PG_URL -> query is not_configured.
+        assert domain.registry_semantic_codes(
+            "world_bank", "indicator", "code", ["NY.GDP.PCAP.CD"]) == {}
+
+    def test_empty_or_blank_codes_short_circuit_without_query(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(domain, "query",
+                            lambda *a, **k: calls.append(1) or [])
+        assert domain.registry_semantic_codes("x", "y", "z", []) == {}
+        assert domain.registry_semantic_codes("x", "y", "z", ["", None]) == {}
+        assert calls == []
+
+    def test_unavailable_registry_maps_to_empty(self, monkeypatch):
+        monkeypatch.setattr(
+            domain, "query",
+            lambda *a, **k: {"status": "domain_unavailable",
+                             "detail": "OperationalError"})
+        assert domain.registry_semantic_codes("x", "y", "z", ["a"]) == {}
+
+    def test_maps_anchor_and_casts_dedupes_codes(self, monkeypatch):
+        captured = {}
+
+        def fake_query(dbname, sql, params):
+            captured.update(dbname=dbname, sql=sql, params=params)
+            return [{"native_code": "12209", "semantic_code": "YB.GDP"},
+                    {"native_code": "2", "semantic_code": "YB.OTHER"}]
+
+        monkeypatch.setattr(domain, "query", fake_query)
+        out = domain.registry_semantic_codes(
+            "yearbook_catalog", "indicators", "id",
+            [12209, "12209", 2, "", None])
+        assert out == {"12209": "YB.GDP", "2": "YB.OTHER"}
+        # The lookup targets the registry database with the full anchor.
+        assert captured["dbname"] == domain.REGISTRY_DB == "fd_open_data"
+        assert "registry_entries" in captured["sql"]
+        assert "verified" in captured["sql"]
+        assert captured["params"] == {"sdb": "yearbook_catalog",
+                                      "stab": "indicators", "scol": "id",
+                                      "codes": ["12209", "2"]}
+
+    def test_null_semantic_code_rows_are_dropped(self, monkeypatch):
+        monkeypatch.setattr(domain, "query", lambda *a, **k: [
+            {"native_code": "a", "semantic_code": None}])
+        assert domain.registry_semantic_codes("x", "y", "z", ["a"]) == {}

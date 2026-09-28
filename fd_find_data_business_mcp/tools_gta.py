@@ -6,7 +6,9 @@ filtered by year range and firm identifiers. The wide panel tables
 (panel_c0/c1/c2, up to 849 columns) are only ever queried with explicit,
 allowlisted column names. Both tools go through the fail-soft domain layer
 and brand every served row ``finddata``; internal storage identity (table
-and sub-library names) is never emitted.
+and sub-library names) is never emitted. Search rows additionally carry
+the unified indicator-registry identity (``native_code`` +
+``semantic_code``), enriched fail-soft.
 """
 from __future__ import annotations
 
@@ -14,9 +16,14 @@ import re
 from decimal import Decimal
 from typing import Any
 
-from fd_find_data_business_mcp.domain import query as domain_query
+from fd_find_data_business_mcp.domain import (
+    query as domain_query, registry_semantic_codes)
 
 _DB = "gta_panel"
+
+#: Registry anchor for this store: native_code is the variable name; the
+#: registry's semantic codes for GTA are the UPPERCASED native name.
+_REGISTRY_ANCHOR = ("gta_panel", "variables", "name")
 
 #: Variable storage is only servable from these tables (validated before any
 #: column name is interpolated into SQL).
@@ -103,8 +110,12 @@ def gta_search_variables(query_text: str, limit: int = 50) -> dict:
     """Search GTA panel variables by fuzzy Chinese label or code.
 
     Returns ``{results, count, truncated}`` with rows
-    ``{code, label, brand}`` — storage identity (table, sub-library) is
-    not emitted. A domain failure is passed through unchanged.
+    ``{code, label, native_code, semantic_code, brand}`` — storage
+    identity (table, sub-library) is not emitted. ``native_code`` repeats
+    the registry anchor (the variable name; GTA semantic codes are its
+    UPPERCASED form) and ``semantic_code`` carries the unified
+    indicator-registry identity, null when unverified or unregistered (the
+    lookup fails soft). A domain failure is passed through unchanged.
     """
     q = (query_text or "").strip()
     if not q:
@@ -116,9 +127,13 @@ def gta_search_variables(query_text: str, limit: int = 50) -> dict:
     })
     if isinstance(rows, dict):
         return rows
+    page = rows[:limit]
+    native_codes = [r["code"] for r in page]
+    semantic = registry_semantic_codes(*_REGISTRY_ANCHOR, native_codes)
     results = [
-        {"code": r["code"], "label": r["label"], "brand": "finddata"}
-        for r in rows[:limit]
+        {"code": r["code"], "label": r["label"], "native_code": r["code"],
+         "semantic_code": semantic.get(r["code"]), "brand": "finddata"}
+        for r in page
     ]
     return {"results": results, "count": len(results), "truncated": len(rows) > limit}
 

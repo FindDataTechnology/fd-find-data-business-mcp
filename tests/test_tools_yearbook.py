@@ -45,6 +45,14 @@ def _ind_row(id_, name, category="综合", unit="亿元"):
     return {"id": id_, "name": name, "category": category, "unit": unit}
 
 
+@pytest.fixture(autouse=True)
+def _no_live_registry(monkeypatch):
+    """Unit tests never touch the live registry: enrichment is stubbed to
+    return no mappings (semantic_code null). Tests that assert registry
+    identity re-patch ``registry_semantic_codes`` with a canned map."""
+    monkeypatch.setattr(ty, "registry_semantic_codes", lambda *a, **k: {})
+
+
 def _val_row(year, region="全国", value_num=Decimal("1.5"), value="1.5", unit="亿元"):
     return {"data_year": year, "region": region, "value_num": value_num,
             "value": value, "unit": unit}
@@ -70,7 +78,8 @@ class TestSearchUnit:
         row = r["results"][0]
         assert row["brand"] == "finddata"
         assert row == {"id": 1, "name": "生产总值", "category": "综合",
-                       "unit": "亿元", "brand": "finddata"}
+                       "unit": "亿元", "native_code": "1",
+                       "semantic_code": None, "brand": "finddata"}
         assert not any(k in row for k in _FORBIDDEN)
 
     def test_truncation_flag_true_beyond_limit(self, monkeypatch):
@@ -128,6 +137,61 @@ class TestSearchUnit:
         fail = {"status": "domain_unavailable", "detail": "OperationalError"}
         monkeypatch.setattr(ty, "domain_query", FakeDomain(fail))
         assert ty.yearbook_search_indicators("生产总值") == fail
+
+
+# --- Unit: registry identity enrichment ----------------------------------------
+
+class TestRegistryIdentity:
+    def test_lookup_uses_yearbook_anchor_with_text_codes(self, monkeypatch):
+        captured = {}
+
+        def fake_lookup(sdb, stab, scol, codes):
+            captured.update(sdb=sdb, stab=stab, scol=scol, codes=codes)
+            return {"12209": "YB.GDP.TOTAL"}
+
+        monkeypatch.setattr(ty, "registry_semantic_codes", fake_lookup)
+        monkeypatch.setattr(ty, "domain_query",
+                            FakeDomain([_ind_row(12209, "生产总值"),
+                                        _ind_row(2, "别的指标")]))
+        r = ty.yearbook_search_indicators("指标")
+        # Anchor: yearbook indicators.id, cast to text (registry stores
+        # text anchors); order preserved for the page of rows.
+        assert captured == {"sdb": "yearbook_catalog", "stab": "indicators",
+                            "scol": "id", "codes": ["12209", "2"]}
+        by_id = {row["id"]: row for row in r["results"]}
+        assert by_id[12209]["semantic_code"] == "YB.GDP.TOTAL"
+        assert by_id[12209]["native_code"] == "12209"
+        assert by_id[12209]["id"] == 12209  # existing key kept for compat
+        assert by_id[2]["semantic_code"] is None  # unregistered -> null
+        assert by_id[2]["native_code"] == "2"
+
+    def test_registry_failure_serves_rows_with_null_semantic_code(self, monkeypatch):
+        # registry_semantic_codes' fail-soft contract is "return {}" — the
+        # search must still serve every row, just without semantic identity.
+        monkeypatch.setattr(ty, "registry_semantic_codes", lambda *a, **k: {})
+        monkeypatch.setattr(ty, "domain_query",
+                            FakeDomain([_ind_row(7, "生产总值")]))
+        r = ty.yearbook_search_indicators("生产总值")
+        assert r == {"results": [{"id": 7, "name": "生产总值",
+                                  "category": "综合", "unit": "亿元",
+                                  "native_code": "7", "semantic_code": None,
+                                  "brand": "finddata"}],
+                     "count": 1, "truncated": False}
+
+    def test_no_matched_rows_means_no_registry_codes(self, monkeypatch):
+        captured = {}
+
+        def fake_lookup(sdb, stab, scol, codes):
+            captured.update(codes=codes)
+            return {}
+
+        monkeypatch.setattr(ty, "registry_semantic_codes", fake_lookup)
+        monkeypatch.setattr(ty, "domain_query", FakeDomain([]))
+        r = ty.yearbook_search_indicators("无此指标")
+        assert r == {"results": [], "count": 0, "truncated": False}
+        # Empty page -> the lookup gets no codes (and the real helper
+        # short-circuits to {} without touching the registry database).
+        assert captured == {"codes": []}
 
 
 # --- Unit: yearbook_read ------------------------------------------------------

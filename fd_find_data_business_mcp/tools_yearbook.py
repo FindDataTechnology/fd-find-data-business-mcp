@@ -4,16 +4,23 @@
 standardized catalog (indicators + aliases); ``yearbook_read`` serves the
 latest-edition series for one indicator from indicator_values. Both go
 through the fail-soft domain layer and brand every served row ``finddata``;
-no table_id, dims, or provenance key is ever emitted.
+no table_id, dims, or provenance key is ever emitted. Search rows carry the
+unified indicator-registry identity (``native_code`` + ``semantic_code``),
+enriched via a separate registry lookup that fails soft to null.
 """
 from __future__ import annotations
 
 from decimal import Decimal
 from typing import Any
 
-from fd_find_data_business_mcp.domain import query as domain_query
+from fd_find_data_business_mcp.domain import (
+    query as domain_query, registry_semantic_codes)
 
 _DB = "yearbook_catalog"
+
+#: Registry anchor for this store: native_code is the indicators.id cast to
+#: text (the registry stores text anchors for every source).
+_REGISTRY_ANCHOR = ("yearbook_catalog", "indicators", "id")
 
 _SEARCH_LIMIT_MAX = 200
 _READ_LIMIT_MAX = 1000
@@ -65,7 +72,11 @@ def yearbook_search_indicators(query_text: str, limit: int = 50) -> dict:
     Matches standardized names and recorded aliases with ``ILIKE '%q%'``,
     ranking exact matches first, then prefix matches, then earliest
     substring position. Returns ``{results, count, truncated}`` with rows
-    ``{id, name, category, unit, brand}``; a domain failure is passed
+    ``{id, name, category, unit, native_code, semantic_code, brand}``:
+    ``native_code`` repeats the registry anchor (the id as text) and
+    ``semantic_code`` carries the unified indicator-registry identity —
+    null when the entry is unverified or unregistered (registry lookups
+    fail soft, exactly like the main query). A domain failure is passed
     through unchanged.
     """
     q = (query_text or "").strip()
@@ -78,10 +89,14 @@ def yearbook_search_indicators(query_text: str, limit: int = 50) -> dict:
     })
     if isinstance(rows, dict):
         return rows
+    page = rows[:limit]
+    native_codes = [str(r["id"]) for r in page]
+    semantic = registry_semantic_codes(*_REGISTRY_ANCHOR, native_codes)
     results = [
         {"id": r["id"], "name": r["name"], "category": r["category"],
-         "unit": r["unit"], "brand": "finddata"}
-        for r in rows[:limit]
+         "unit": r["unit"], "native_code": str(r["id"]),
+         "semantic_code": semantic.get(str(r["id"])), "brand": "finddata"}
+        for r in page
     ]
     return {"results": results, "count": len(results), "truncated": len(rows) > limit}
 

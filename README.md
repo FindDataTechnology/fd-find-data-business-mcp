@@ -25,6 +25,7 @@ no `source_used` / `real_source_used` key ever reaches a client.
 | `gta_read` | Firm-year values for one GTA panel variable. |
 | `city_search_variables` | Fuzzy-search China city-panel variables. |
 | `city_read` | City-year values for one city-panel variable (297 cities, 2000–2024). |
+| `registry_coverage` | Per-source indicator-registry coverage: registered / verified counts vs in-source anchors, plus the phase-2 and document-domain boundary. |
 
 ## Domain federation (yearbook / law / world bank / GTA / city panel)
 
@@ -37,6 +38,50 @@ and `china_city_panel`). If that machine is down, the domain tools return
 Optional tuning env: `FDBIZ_DOMAIN_CONNECT_TIMEOUT` (default 5s),
 `FDBIZ_DOMAIN_STATEMENT_TIMEOUT_MS` (default 15000), `FDBIZ_DOMAIN_DEBUG`
 (include truncated error text in unavailability responses).
+
+### Indicator identity: the unified indicator registry
+
+The four indicator-search tools (`yearbook_search_indicators`,
+`wb_search_indicators`, `gta_search_variables`, `city_search_variables`)
+align their result identity with the unified indicator registry
+(`fd_open_data.registry_entries` on the same data machine). Every search
+row carries, additively and backward-compatibly:
+
+- `native_code` — the registry anchor, identical to the tool's existing
+  `code` / `id` key (yearbook ids are cast to text; GTA anchors are the
+  variable name and its semantic codes are the UPPERCASED form);
+- `semantic_code` — the registry's unified semantic code, or `null` when
+  the entry is unverified or unregistered (the registry quality gate:
+  unverified entries never surface a semantic code).
+
+The registry lives in its own database, so enrichment is a separate
+fail-soft lookup after the main query — never a cross-database JOIN. If
+the registry is unreachable, rows are served with `semantic_code: null`,
+exactly like every other degradation path; row counts, existing keys, and
+the `{results, count, truncated}` envelope are unchanged.
+
+### Coverage boundary (registry_coverage)
+
+`registry_coverage` reports the registration state live from the registry,
+unioned with the static boundary declarations (census anchors as of
+2026-09-22; natural growth expected — the tool serves live counts):
+
+| Source | Phase | Registered (census) | Verified (census) | In-source anchors |
+|---|---|---|---|---|
+| `world_bank` | 第一期（已登记） | 1,499 | 1,499 | 1,499 |
+| `yearbook_catalog` | 第一期（已登记） | 53,925 | 0（清洗挂账中） | 53,925 |
+| `gta_panel` | 第一期（已登记） | 1,468 | 1,466 | 1,468 |
+| `china_city_panel` | 第一期（已登记） | 209 | 209 | 209 |
+| `fd_open_data`（镜像概念） | 第一期（已登记） | 452 | 246 | 452 |
+| `ia35`（工商注册，161G，实体为主） | 第二期（未登记） | 0 | — | 未普查 |
+| `wenshu_db`（裁判文书，增量暂停） | 第二期（未登记） | 0 | — | 未普查 |
+| `law_db` | 文档域（非指标口径） | 0 | — | 0 |
+
+`law_db` is deliberately outside the indicator caliber: 法条 / 切片 /
+指导案例 are document assets, not indicators — 0 registered entries is
+the expected state, not a coverage gap. If the registry is unreachable,
+`registry_coverage` fails soft: the static declarations above are served
+with a `note` and the verified split left null.
 
 ## Install
 

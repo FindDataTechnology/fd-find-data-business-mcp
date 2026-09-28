@@ -44,6 +44,14 @@ def _cat_row(code="v001", label="地区生产总值(万元)", unit="万元"):
     return {"code": code, "label": label, "unit": unit}
 
 
+@pytest.fixture(autouse=True)
+def _no_live_registry(monkeypatch):
+    """Unit tests never touch the live registry: enrichment is stubbed to
+    return no mappings (semantic_code null). Registry-identity tests
+    re-patch ``registry_semantic_codes`` with a canned map."""
+    monkeypatch.setattr(tc, "registry_semantic_codes", lambda *a, **k: {})
+
+
 def _val_row(year=2020, city_code=110000, city_name="北京市", value=36102.6):
     return {"year": year, "city_code": city_code, "city_name": city_name,
             "value": value}
@@ -65,7 +73,8 @@ class TestSearchUnit:
         r = tc.city_search_variables("生产总值")
         row = r["results"][0]
         assert row == {"code": "v001", "label": "地区生产总值(万元)",
-                       "unit": "万元", "brand": "finddata"}
+                       "unit": "万元", "native_code": "v001",
+                       "semantic_code": None, "brand": "finddata"}
         assert not any(k in row for k in _FORBIDDEN)
 
     def test_truncation_flag(self, monkeypatch):
@@ -78,6 +87,38 @@ class TestSearchUnit:
         fail = {"status": "domain_unavailable", "detail": "OperationalError"}
         monkeypatch.setattr(tc, "domain_query", FakeDomain(fail))
         assert tc.city_search_variables("x") == fail
+
+
+# --- Unit: registry identity enrichment ----------------------------------------
+
+class TestRegistryIdentity:
+    def test_lookup_uses_city_var_id_anchor(self, monkeypatch):
+        captured = {}
+
+        def fake_lookup(sdb, stab, scol, codes):
+            captured.update(sdb=sdb, stab=stab, scol=scol, codes=codes)
+            return {"v001": "CITY.GDP"}
+
+        monkeypatch.setattr(tc, "registry_semantic_codes", fake_lookup)
+        monkeypatch.setattr(tc, "domain_query",
+                            FakeDomain([[_cat_row(), _cat_row(code="v017")]]))
+        r = tc.city_search_variables("生产总值")
+        assert captured == {"sdb": "china_city_panel", "stab": "variable_catalog",
+                            "scol": "var_id", "codes": ["v001", "v017"]}
+        by_code = {row["code"]: row for row in r["results"]}
+        assert by_code["v001"]["semantic_code"] == "CITY.GDP"
+        assert by_code["v001"]["native_code"] == "v001"
+        assert by_code["v001"]["code"] == "v001"  # key kept
+        assert by_code["v017"]["semantic_code"] is None
+
+    def test_registry_failure_serves_rows_with_null_semantic_code(self, monkeypatch):
+        monkeypatch.setattr(tc, "registry_semantic_codes", lambda *a, **k: {})
+        monkeypatch.setattr(tc, "domain_query", FakeDomain([[_cat_row()]]))
+        r = tc.city_search_variables("生产总值")
+        assert r["count"] == 1
+        row = r["results"][0]
+        assert row["native_code"] == "v001"
+        assert row["semantic_code"] is None
 
 
 # --- Unit: city_read ----------------------------------------------------------
