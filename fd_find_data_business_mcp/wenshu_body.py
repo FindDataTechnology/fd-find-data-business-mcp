@@ -1,33 +1,47 @@
 """Wenshu (裁判文书) full-text block reader — RustFS zstd blocks, fail-soft.
 
-Judgment bodies are not stored in PostgreSQL. Each month's docs are packed
-into zstd-compressed blocks in the S3-compatible RustFS bucket ``wenshu``;
-the on-disk format is pinned by fd-law-data's writer
-(lib/wenshu/blocks.js, BLOCK_MAGIC ``WENSHUBLOCK1``):
+Judgment bodies are not stored in PostgreSQL. Each block packs one month's
+docs in the S3-compatible RustFS bucket ``wenshu``. TWO writer formats
+exist in the bucket and both are read (sniffed per object):
 
-    decompressed block = b"WENSHUBLOCK1\\n"
-                       + utf8 JSON {"month": "YYYY-MM",
-                                    "docs": [docId, ...],
-                                    "offsets": [0, a, a+b, ...]} + b"\\n"
-                       + concatenated raw utf-8 doc payloads
+1. **Historical Windows writer** (every object observed in the bucket as
+   of 2026-09-29, incl. the blocks the 2024-2025 re-import writes) —
+   reverse-engineered from live objects::
 
-``offsets`` has ``len(docs) + 1`` entries: ``offsets[0] == 0`` and
-``offsets[i]`` counts payload bytes before doc i, the last entry being the
-total payload length. Doc at index i occupies the byte range
-``[header-line end + offsets[i], header-line end + offsets[i+1])`` where
-"header-line end" is just after the header line's ``\\n``. Lines are
-byte-split (the payload itself may contain 0x0a), so the magic and header
-lines are located before any whole-buffer decode.
+       object = u32-BE header byte length
+              + utf8 JSON {"docs": [docId, ...],
+                           "offsets": [[start, byteLen], ...],
+                           "raw": ..., "src": ...}
+              + zstd stream of the concatenated doc payloads
+
+   ``offsets[i]`` is an ABSOLUTE [start, byteLen] pair into the
+   DECOMPRESSED payload; doc i's bytes are
+   ``payload[offsets[i][0] : offsets[i][0] + offsets[i][1]]``. Payloads
+   are raw utf-8 (html docs carry the original ``<!DOCTYPE …`` markup —
+   served as stored, the tool discloses ``body_shape``).
+
+2. **blocks.js writer** (fd-law-data lib/wenshu/blocks.js,
+   ``BLOCK_MAGIC = "WENSHUBLOCK1"`` — designed while the bucket was
+   empty, so no object of this shape exists yet; future crawl-line
+   blocks may use it)::
+
+       object = zstd stream of (b"WENSHUBLOCK1\\n"
+                                + utf8 JSON {"month", "docs", "offsets"}
+                                + b"\\n" + concatenated payloads)
+
+   Here ``offsets`` has ``len(docs) + 1`` cumulative entries and doc i
+   occupies ``[header_end+offsets[i], header_end+offsets[i+1])``.
 
 :func:`fetch_judgment_body` fetches one block by its ``block_key``
-coordinate (e.g. ``blocks/2024/09/000711.zst``), decompresses, and slices
-out one ``doc_id``. Every failure mode — missing/blank coordinates,
-missing credentials, network error, bad zstd, bad magic, unparsable or
-malformed header, docId not in the block, out-of-bounds slice, invalid
-utf-8 — returns ``None`` with a log line and NEVER raises: the same
-fail-soft contract as ``domain.query``. ``block_key`` is an internal
-coordinate; this module is never customer-facing by itself, tools_wenshu
-wraps it.
+coordinate (e.g. ``blocks/2024/09/000711.zst``), parses whichever format
+the object carries, and slices out one ``doc_id``. Every failure mode —
+missing/blank coordinates, missing credentials, network error, bad zstd,
+unrecognized format, unparsable or malformed header, docId not in the
+block, out-of-bounds slice, invalid utf-8 — returns ``None`` with a log
+line and NEVER raises: the same fail-soft contract as
+:func:`fd_find_data_business_mcp.domain.query`. ``block_key`` is an
+internal coordinate; this module is never customer-facing by itself,
+tools_wenshu wraps it.
 """
 from __future__ import annotations
 
@@ -117,39 +131,57 @@ def _fetch_compressed(block_key: str) -> bytes | None:
         return None
 
 
-def _decompress(compressed: bytes, block_key: str) -> bytes | None:
-    """zstd-decompress a block; None (logged) on any failure.
+#: Zstd frame magic — an object starting with these bytes is a whole-object
+#: zstd stream (blocks.js writer); anything else is the historical
+#: length-prefixed-header layout.
+_ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
+
+
+def _zstd_read(blob: bytes, block_key: str, what: str) -> bytes | None:
+    """zstd-decompress ``blob``; None (logged) on any failure.
 
     stream_reader (not decompress()) so frames without a content-size
-    header also decompress — the historical writer's framing is not
-    guaranteed to carry one.
+    header also decompress — neither writer's framing is guaranteed to
+    carry one.
     """
     try:
         return zstandard.ZstdDecompressor() \
-            .stream_reader(io.BytesIO(compressed)).read()
+            .stream_reader(io.BytesIO(blob)).read()
     except Exception as exc:  # noqa: BLE001 — fail-soft by contract
-        logger.warning("wenshu_body: zstd decompress %s failed: %s",
-                       block_key, type(exc).__name__)
+        logger.warning("wenshu_body: zstd decompress %s (%s) failed: %s",
+                       block_key, what, type(exc).__name__)
         return None
 
 
-def _extract(decompressed: bytes, doc_id: str, block_key: str) -> str | None:
-    """Slice one doc's utf-8 text out of a decompressed block."""
-    nl = decompressed.find(b"\n")
-    if nl == -1:
-        logger.warning("wenshu_body: %s truncated (no magic newline)", block_key)
+def _parse_block(compressed: bytes, block_key: str) -> tuple[list, Any] | None:
+    """Parse a fetched object into (docs, slicer).
+
+    ``slicer(i)`` returns the raw payload bytes of doc ``i`` (raises
+    nothing — bounds failures yield None via :func:`_slice`). Recognizes
+    both writer formats; returns None (logged) on any malformed input.
+    """
+    if compressed[:4] == _ZSTD_MAGIC:
+        return _parse_blocks_js(compressed, block_key)
+    return _parse_legacy(compressed, block_key)
+
+
+def _parse_blocks_js(compressed: bytes, block_key: str) -> tuple[list, Any] | None:
+    """blocks.js layout: whole-object zstd of magic line + JSON + payload."""
+    dec = _zstd_read(compressed, block_key, "whole object")
+    if dec is None:
         return None
-    if decompressed[:nl] != BLOCK_MAGIC.encode("utf-8"):
+    nl = dec.find(b"\n")
+    if nl == -1 or dec[:nl] != BLOCK_MAGIC.encode("utf-8"):
         logger.warning("wenshu_body: %s bad magic line (expected %s)",
                        block_key, BLOCK_MAGIC)
         return None
     start = nl + 1
-    nl2 = decompressed.find(b"\n", start)
+    nl2 = dec.find(b"\n", start)
     if nl2 == -1:
         logger.warning("wenshu_body: %s truncated (no header newline)", block_key)
         return None
     try:
-        header = json.loads(decompressed[start:nl2].decode("utf-8"))
+        header = json.loads(dec[start:nl2].decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
         logger.warning("wenshu_body: %s header is not valid JSON", block_key)
         return None
@@ -159,23 +191,71 @@ def _extract(decompressed: bytes, doc_id: str, block_key: str) -> str | None:
             or len(offsets) != len(docs) + 1):
         logger.warning("wenshu_body: %s malformed header (docs/offsets)", block_key)
         return None
-    try:
-        idx = docs.index(doc_id)
-    except ValueError:
-        # Expected miss (doc never in this block), not a malfunction.
-        logger.debug("wenshu_body: %s does not contain doc %s", block_key, doc_id)
+    payload_start = nl2 + 1
+
+    def slicer(i: int) -> bytes | None:
+        a, b = offsets[i], offsets[i + 1]
+        if (not isinstance(a, int) or not isinstance(b, int)
+                or a < 0 or b < a or payload_start + b > len(dec)):
+            logger.warning("wenshu_body: %s doc slice out of bounds (doc %s)",
+                           block_key, docs[i])
+            return None
+        return dec[payload_start + a:payload_start + b]
+
+    return docs, slicer
+
+
+def _parse_legacy(compressed: bytes, block_key: str) -> tuple[list, Any] | None:
+    """Historical Windows writer: u32-BE header length + JSON + zstd payload.
+
+    Live-decoded 2026-09-29 from blocks/2024/09/000711.zst and
+    blocks/2025/10/000020.zst: header JSON has ``docs`` and ``offsets``
+    as per-doc ``[absolute_start, byte_len]`` pairs into the decompressed
+    payload (plus opaque ``raw``/``src`` fields, ignored here).
+    """
+    if len(compressed) < 5:
+        logger.warning("wenshu_body: %s too short for legacy header", block_key)
         return None
-    body_start = nl2 + 1
-    from_off, to_off = offsets[idx], offsets[idx + 1]
-    if (not isinstance(from_off, int) or not isinstance(to_off, int)
-            or from_off < 0 or to_off < from_off
-            or body_start + to_off > len(decompressed)):
-        logger.warning("wenshu_body: %s doc slice out of bounds (doc %s)",
-                       block_key, doc_id)
+    plen = int.from_bytes(compressed[:4], "big")
+    if plen <= 0 or 4 + plen >= len(compressed):
+        logger.warning("wenshu_body: %s implausible legacy header length %d",
+                       block_key, plen)
         return None
     try:
-        return decompressed[body_start + from_off:body_start + to_off] \
-            .decode("utf-8")
+        header = json.loads(compressed[4:4 + plen].decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        logger.warning("wenshu_body: %s header is not valid JSON", block_key)
+        return None
+    docs = header.get("docs") if isinstance(header, dict) else None
+    offsets = header.get("offsets") if isinstance(header, dict) else None
+    if (not isinstance(docs, list) or not isinstance(offsets, list)
+            or len(offsets) != len(docs)):
+        logger.warning("wenshu_body: %s malformed header (docs/offsets)", block_key)
+        return None
+    payload = _zstd_read(compressed[4 + plen:], block_key, "payload section")
+    if payload is None:
+        return None
+
+    def slicer(i: int) -> bytes | None:
+        pair = offsets[i]
+        if (not isinstance(pair, list) or len(pair) != 2
+                or not all(isinstance(v, int) for v in pair)
+                or pair[0] < 0 or pair[1] < 0
+                or pair[0] + pair[1] > len(payload)):
+            logger.warning("wenshu_body: %s doc slice out of bounds (doc %s)",
+                           block_key, docs[i])
+            return None
+        return payload[pair[0]:pair[0] + pair[1]]
+
+    return docs, slicer
+
+
+def _decode_doc(raw: bytes | None, doc_id: str, block_key: str) -> str | None:
+    """utf-8 decode one sliced payload; None (logged) on failure."""
+    if raw is None:
+        return None
+    try:
+        return raw.decode("utf-8")
     except UnicodeDecodeError:
         logger.warning("wenshu_body: %s doc %s payload is not valid utf-8",
                        block_key, doc_id)
@@ -202,7 +282,14 @@ def fetch_judgment_body(block_key: str, doc_id: str) -> str | None:
     compressed = _fetch_compressed(block_key)
     if compressed is None:
         return None
-    decompressed = _decompress(compressed, block_key)
-    if decompressed is None:
+    parsed = _parse_block(compressed, block_key)
+    if parsed is None:
         return None
-    return _extract(decompressed, doc_id, block_key)
+    docs, slicer = parsed
+    try:
+        idx = docs.index(doc_id)
+    except ValueError:
+        # Expected miss (doc never in this block), not a malfunction.
+        logger.debug("wenshu_body: %s does not contain doc %s", block_key, doc_id)
+        return None
+    return _decode_doc(slicer(idx), doc_id, block_key)

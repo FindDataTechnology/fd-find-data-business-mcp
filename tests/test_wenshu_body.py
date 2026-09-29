@@ -132,6 +132,78 @@ class TestFetchJudgmentBody:
                 assert out is None or out == "正文"
 
 
+def _make_legacy_block(docs: dict[str, str]) -> bytes:
+    """Build a block in the HISTORICAL Windows-writer layout: u32-BE header
+    byte length + plaintext JSON header + zstd-compressed payload with
+    per-doc [absolute_start, byte_len] offset pairs (layout decoded from
+    live bucket objects, 2026-09-29)."""
+    payloads = [text.encode("utf-8") for text in docs.values()]
+    offsets: list[list[int]] = []
+    start = 0
+    for buf in payloads:
+        offsets.append([start, len(buf)])
+        start += len(buf)
+    header = {"docs": list(docs), "offsets": offsets,
+              "raw": None, "src": "wenshu"}
+    blob = json.dumps(header).encode("utf-8")
+    return (len(blob).to_bytes(4, "big") + blob
+            + zstandard.ZstdCompressor(level=19).compress(b"".join(payloads)))
+
+
+class TestLegacyFormat:
+    """The historical writer's objects — the only kind live in the bucket."""
+
+    def test_hit_returns_exact_utf8_text(self, s3):
+        s3.objects["blocks/2024/09/000711.zst"] = _make_legacy_block({
+            "doc-a": "本院认为，合同合法有效。",
+            "doc-b": "判决如下：驳回上诉，维持原判。",
+        })
+        assert wb.fetch_judgment_body(
+            "blocks/2024/09/000711.zst", "doc-a") == "本院认为，合同合法有效。"
+
+    def test_html_payload_served_as_stored(self, s3):
+        html = "<!DOCTYPE HTML PUBLIC><html><body>裁判文书正文</body></html>"
+        s3.objects["blocks/2024/09/000001.zst"] = _make_legacy_block(
+            {"doc-h": html})
+        assert wb.fetch_judgment_body(
+            "blocks/2024/09/000001.zst", "doc-h") == html
+
+    def test_doc_not_in_block_returns_none(self, s3):
+        s3.objects["blocks/2025/10/000020.zst"] = _make_legacy_block(
+            {"doc-a": "甲文"})
+        assert wb.fetch_judgment_body(
+            "blocks/2025/10/000020.zst", "doc-zz") is None
+
+    def test_bad_header_json_returns_none(self, s3):
+        blob = b"{not json"
+        s3.objects["k"] = len(blob).to_bytes(4, "big") + blob + b"\x28\xb5\x2f\xfd"
+        assert wb.fetch_judgment_body("k", "d") is None
+
+    def test_implausible_header_length_returns_none(self, s3):
+        s3.objects["k"] = (999_999_999).to_bytes(4, "big") + b"{}"
+        assert wb.fetch_judgment_body("k", "d") is None
+
+    def test_offsets_length_mismatch_returns_none(self, s3):
+        blob = json.dumps({"docs": ["a", "b"], "offsets": [[0, 1]]}).encode()
+        s3.objects["k"] = len(blob).to_bytes(4, "big") + blob + b"\x28\xb5\x2f\xfd"
+        assert wb.fetch_judgment_body("k", "a") is None
+
+    def test_malformed_pair_returns_none(self, s3):
+        blob = json.dumps({"docs": ["a"], "offsets": [[5]]}).encode()
+        s3.objects["k"] = len(blob).to_bytes(4, "big") + blob + b"\x28\xb5\x2f\xfd"
+        assert wb.fetch_judgment_body("k", "a") is None
+
+    def test_out_of_bounds_pair_returns_none(self, s3):
+        blob = json.dumps({"docs": ["a"], "offsets": [[0, 99999]]}).encode()
+        s3.objects["k"] = len(blob).to_bytes(4, "big") + blob + b"\x28\xb5\x2f\xfd"
+        assert wb.fetch_judgment_body("k", "a") is None
+
+    def test_bad_payload_zstd_returns_none(self, s3):
+        blob = json.dumps({"docs": ["a"], "offsets": [[0, 4]]}).encode()
+        s3.objects["k"] = len(blob).to_bytes(4, "big") + blob + b"garbage!!"
+        assert wb.fetch_judgment_body("k", "a") is None
+
+
 class TestClientConfig:
     def test_env_overrides_and_defaults(self, monkeypatch):
         monkeypatch.delenv("FDBIZ_RUSTFS_ENDPOINT", raising=False)
