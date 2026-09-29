@@ -248,8 +248,64 @@ def graph_search(
 # data machine is down these tools return {"status": "domain_unavailable"}
 # while every core tool above is unaffected (separate engines and timeouts).
 
+# Scope gate (indicator-scope): each domain tool IS one source ("源即 scope",
+# shared-library design D4) — a scope that excludes this tool's source yields
+# an explainable empty result; an unknown scope is an explicit error; a
+# permitted scoped call is disclosed + counted. Sources here use the same
+# names scopes are written with (registry source_dbs, plus the document-domain
+# codes that scopes may pin).
+_TOOL_SOURCES = {
+    "yearbook": ["yearbook_catalog"],
+    "wb": ["world_bank"],
+    "gta": ["gta_panel"],
+    "city": ["china_city_panel"],
+    "law": ["law_db"],
+    "legal_docs": [
+        "gov-rules-library", "mfa-treaty-library", "ccdi-supervisory-regulations",
+        "rmfyalk-case-library", "party-regulation-library",
+    ],
+    "guide_cases": ["guide_cases"],
+    "wenshu": ["wenshu_db"],
+    "ia35": ["ia35"],
+}
+
+
+def _scope_gate(scope: str | None, tool_key: str) -> tuple[dict | None, dict | None]:
+    """Resolve + gate a domain tool's optional ``scope`` parameter.
+
+    Returns ``(scope_meta, gate_response)``; ``gate_response`` is not None
+    when the call must return it as-is (unknown scope / source outside the
+    scope). Scoped-but-permitted calls return the metadata to attach; stats
+    are recorded by the caller once the result size is known.
+    """
+    from fd_open_data_mcp import scoping
+
+    s = _session()
+    try:
+        try:
+            return scoping.domain_scope_gate(s, scope, _TOOL_SOURCES[tool_key])
+        except scoping.ScopeNotFound as exc:
+            return None, {"error": "unknown_scope", "scope": exc.name, "detail": str(exc)}
+    finally:
+        s.close()
+
+
+def _scope_record(meta: dict | None, result_count: int) -> None:
+    """Count a served scoped retrieval (design D6)."""
+    if not meta:
+        return
+    from fd_open_data_mcp import scoping
+
+    s = _session()
+    try:
+        scoping.record_hit(s, meta["name"], result_count)
+    finally:
+        s.close()
+
+
 @mcp.tool
-def yearbook_search_indicators(query: str, limit: int = 50) -> dict:
+def yearbook_search_indicators(query: str, limit: int = 50,
+                               scope: str | None = None) -> dict:
     """Search FindData statistical-yearbook indicators by fuzzy name.
 
     Returns {results: [{id, name, category, unit, native_code,
@@ -258,11 +314,21 @@ def yearbook_search_indicators(query: str, limit: int = 50) -> dict:
     semantic_code carries the unified indicator-registry identity — null
     when the entry is unverified or unregistered. If the yearbook store is
     unreachable, returns {"status": "domain_unavailable"} instead of failing.
+    ``scope``: named retrieval scope — an unknown scope errors explicitly; a
+    scope excluding the yearbook source returns an explainable empty result;
+    a scoped response names the scope in effect.
     """
     from fd_find_data_business_mcp.tools_yearbook import (
         yearbook_search_indicators as _impl)
 
-    return _strip(_impl(query, limit))
+    meta, gate = _scope_gate(scope, "yearbook")
+    if gate is not None:
+        return gate
+    out = _strip(_impl(query, limit))
+    if meta:
+        out["scope"] = meta
+        _scope_record(meta, out.get("count", 0))
+    return out
 
 
 @mcp.tool
@@ -287,17 +353,27 @@ def yearbook_read(
 
 
 @mcp.tool
-def law_search(title_query: str, category: str | None = None, limit: int = 50) -> dict:
+def law_search(title_query: str, category: str | None = None, limit: int = 50,
+               scope: str | None = None) -> dict:
     """Search Chinese laws and regulations by fuzzy title, optionally
     filtered by category (e.g. 法律, 行政法规, 司法解释, 地方性法规).
 
     Returns metadata rows only ({results: [{id, title, category, type,
     status, publish, expiry, brand}], count, truncated}); fetch full text
-    with law_read.
+    with law_read. ``scope``: named retrieval scope — unknown scope errors
+    explicitly; a scope excluding the law source returns an explainable
+    empty result; a scoped response names the scope in effect.
     """
     from fd_find_data_business_mcp.tools_law import law_search as _impl
 
-    return _strip(_impl(title_query, category, limit))
+    meta, gate = _scope_gate(scope, "law")
+    if gate is not None:
+        return gate
+    out = _strip(_impl(title_query, category, limit))
+    if meta:
+        out["scope"] = meta
+        _scope_record(meta, out.get("count", 0))
+    return out
 
 
 @mcp.tool
@@ -318,6 +394,7 @@ def legal_docs_search(
     source: str | None = None,
     doc_type: str | None = None,
     limit: int = 50,
+    scope: str | None = None,
 ) -> dict:
     """Search the authoritative legal-documents corpus by fuzzy title.
 
@@ -329,12 +406,22 @@ def legal_docs_search(
     source_label_zh, doc_type, status, authority, language, published_at,
     effective_at, has_content, brand}], count, truncated}); fetch full text
     with legal_docs_read. An unknown source code returns
-    {"status": "invalid_filter", "valid_sources": [...]}.
+    {"status": "invalid_filter", "valid_sources": [...]}. ``scope``: named
+    retrieval scope — unknown scope errors explicitly; a scope excluding all
+    five sources returns an explainable empty result; a scoped response
+    names the scope in effect.
     """
     from fd_find_data_business_mcp.tools_legal_docs import (
         legal_docs_search as _impl)
 
-    return _strip(_impl(title_query, source, doc_type, limit))
+    meta, gate = _scope_gate(scope, "legal_docs")
+    if gate is not None:
+        return gate
+    out = _strip(_impl(title_query, source, doc_type, limit))
+    if meta:
+        out["scope"] = meta
+        _scope_record(meta, out.get("count", 0))
+    return out
 
 
 @mcp.tool
@@ -360,6 +447,7 @@ def guide_cases_search(
     doc_type: str | None = None,
     reference_status: str | None = None,
     limit: int = 50,
+    scope: str | None = None,
 ) -> dict:
     """Search Supreme People's Court guiding cases and batch notices by fuzzy title.
 
@@ -370,12 +458,22 @@ def guide_cases_search(
     {results: [{source_id, case_no, doc_type, title, listed_at, publish_at,
     source, reference_status, brand}], count, truncated}; fetch structured
     sections with guide_cases_read. Invalid filter values return
-    {"status": "invalid_filter"} with the accepted values.
+    {"status": "invalid_filter"} with the accepted values. ``scope``: named
+    retrieval scope — unknown scope errors explicitly; a scope excluding the
+    guiding-cases source returns an explainable empty result; a scoped
+    response names the scope in effect.
     """
     from fd_find_data_business_mcp.tools_guide_cases import (
         guide_cases_search as _impl)
 
-    return _strip(_impl(title_query, doc_type, reference_status, limit))
+    meta, gate = _scope_gate(scope, "guide_cases")
+    if gate is not None:
+        return gate
+    out = _strip(_impl(title_query, doc_type, reference_status, limit))
+    if meta:
+        out["scope"] = meta
+        _scope_record(meta, out.get("count", 0))
+    return out
 
 
 @mcp.tool
@@ -402,6 +500,7 @@ def wenshu_search(
     start_year: int | None = None,
     end_year: int | None = None,
     limit: int = 50,
+    scope: str | None = None,
 ) -> dict:
     """Search China court judgments by fuzzy title or case number.
 
@@ -414,12 +513,22 @@ def wenshu_search(
     title, court, cause, province, city, case_type, doc_type, procedure,
     court_level, judgment_year, judgment_result, publish_date, has_body,
     brand}], count, truncated}; dictionary reference keys never appear.
-    Fetch full text with wenshu_read.
+    Fetch full text with wenshu_read. ``scope``: named retrieval scope —
+    unknown scope errors explicitly; a scope excluding the wenshu source
+    returns an explainable empty result; a scoped response names the scope
+    in effect.
     """
     from fd_find_data_business_mcp.tools_wenshu import wenshu_search as _impl
 
-    return _strip(_impl(title_query, doc_type, province, start_year,
-                        end_year, limit))
+    meta, gate = _scope_gate(scope, "wenshu")
+    if gate is not None:
+        return gate
+    out = _strip(_impl(title_query, doc_type, province, start_year,
+                       end_year, limit))
+    if meta:
+        out["scope"] = meta
+        _scope_record(meta, out.get("count", 0))
+    return out
 
 
 @mcp.tool
@@ -442,6 +551,7 @@ def ia35_company_search(
     name_prefix: str | None = None,
     credit_code: str | None = None,
     limit: int = 20,
+    scope: str | None = None,
 ) -> dict:
     """Search China business-registry firm profiles by name prefix or exact credit code.
 
@@ -455,12 +565,22 @@ def ia35_company_search(
     Returns {results: [{credit_code, name, legal_rep, reg_capital,
     paid_capital, est_date, est_year, status, company_type, registrar,
     province, city, county, address, business_scope, former_names, tags,
-    batch_year, brand}], count, truncated, snapshot_year?}.
+    batch_year, brand}], count, truncated, snapshot_year?}. ``scope``: named
+    retrieval scope — unknown scope errors explicitly; a scope excluding the
+    ia35 source returns an explainable empty result; a scoped response names
+    the scope in effect.
     """
     from fd_find_data_business_mcp.tools_firms import (
         ia35_company_search as _impl)
 
-    return _strip(_impl(name_prefix, credit_code, limit))
+    meta, gate = _scope_gate(scope, "ia35")
+    if gate is not None:
+        return gate
+    out = _strip(_impl(name_prefix, credit_code, limit))
+    if meta:
+        out["scope"] = meta
+        _scope_record(meta, out.get("count", 0))
+    return out
 
 
 @mcp.tool
@@ -491,7 +611,8 @@ def ia35_reg_counts_read(
 
 
 @mcp.tool
-def wb_search_indicators(query: str, limit: int = 50) -> dict:
+def wb_search_indicators(query: str, limit: int = 50,
+                         scope: str | None = None) -> dict:
     """Search World Bank (WDI) indicators by fuzzy name, topic, or code.
 
     Returns {results: [{code, name, name_en, topic, unit, native_code,
@@ -500,11 +621,21 @@ def wb_search_indicators(query: str, limit: int = 50) -> dict:
     semantic_code carries the unified indicator-registry identity — null
     when the entry is unverified or unregistered. If the domain store is
     unreachable, returns {"status": "domain_unavailable"} instead of failing.
+    ``scope``: named retrieval scope — unknown scope errors explicitly; a
+    scope excluding the world_bank source returns an explainable empty
+    result; a scoped response names the scope in effect.
     """
     from fd_find_data_business_mcp.tools_wb import (
         wb_search_indicators as _impl)
 
-    return _strip(_impl(query, limit))
+    meta, gate = _scope_gate(scope, "wb")
+    if gate is not None:
+        return gate
+    out = _strip(_impl(query, limit))
+    if meta:
+        out["scope"] = meta
+        _scope_record(meta, out.get("count", 0))
+    return out
 
 
 @mcp.tool
@@ -528,7 +659,8 @@ def wb_read(
 
 
 @mcp.tool
-def gta_search_variables(query: str, limit: int = 50) -> dict:
+def gta_search_variables(query: str, limit: int = 50,
+                         scope: str | None = None) -> dict:
     """Search GTA listed-company panel variables by fuzzy Chinese label or code.
 
     Returns {results: [{code, label, native_code, semantic_code, brand}],
@@ -537,12 +669,22 @@ def gta_search_variables(query: str, limit: int = 50) -> dict:
     GTA semantic codes are its UPPERCASED form) and semantic_code carries
     the unified indicator-registry identity — null when the entry is
     unverified or unregistered. If the domain store is unreachable, returns
-    {"status": "domain_unavailable"}.
+    {"status": "domain_unavailable"}. ``scope``: named retrieval scope —
+    unknown scope errors explicitly; a scope excluding the gta_panel source
+    returns an explainable empty result; a scoped response names the scope
+    in effect.
     """
     from fd_find_data_business_mcp.tools_gta import (
         gta_search_variables as _impl)
 
-    return _strip(_impl(query, limit))
+    meta, gate = _scope_gate(scope, "gta")
+    if gate is not None:
+        return gate
+    out = _strip(_impl(query, limit))
+    if meta:
+        out["scope"] = meta
+        _scope_record(meta, out.get("count", 0))
+    return out
 
 
 @mcp.tool
@@ -566,7 +708,8 @@ def gta_read(
 
 
 @mcp.tool
-def city_search_variables(query: str, limit: int = 50) -> dict:
+def city_search_variables(query: str, limit: int = 50,
+                          scope: str | None = None) -> dict:
     """Search China city-panel variables by fuzzy Chinese name or code.
 
     Returns {results: [{code, label, unit, native_code, semantic_code,
@@ -574,11 +717,21 @@ def city_search_variables(query: str, limit: int = 50) -> dict:
     (the var_id) and semantic_code carries the unified indicator-registry
     identity — null when the entry is unverified or unregistered. If
     the domain store is unreachable, returns {"status": "domain_unavailable"}.
+    ``scope``: named retrieval scope — unknown scope errors explicitly; a
+    scope excluding the china_city_panel source returns an explainable
+    empty result; a scoped response names the scope in effect.
     """
     from fd_find_data_business_mcp.tools_city import (
         city_search_variables as _impl)
 
-    return _strip(_impl(query, limit))
+    meta, gate = _scope_gate(scope, "city")
+    if gate is not None:
+        return gate
+    out = _strip(_impl(query, limit))
+    if meta:
+        out["scope"] = meta
+        _scope_record(meta, out.get("count", 0))
+    return out
 
 
 @mcp.tool

@@ -6,6 +6,18 @@ as a library and reuses its cache, dispatch, and catalog — but exposes **zero
 upstream-provider identity** in responses. Every value is branded `finddata`;
 no `source_used` / `real_source_used` key ever reaches a client.
 
+## Scope support (indicator-scope)
+
+Every domain search tool takes an optional `scope` parameter — a named
+retrieval scope managed on the fd-open-data-mcp side (`scope_create` etc.,
+shared library `fd_open_data_mcp.scoping`). Because each domain tool IS one
+source: an unknown scope errors explicitly (`unknown_scope`), a scope whose
+`source_dbs` allow-list excludes this tool's source returns an explainable
+empty result (`status: out_of_scope` + the scope metadata), and a permitted
+scoped call is disclosed (`scope: {name, summary}`) and counted in the
+per-(scope, day) hit statistics. Calls without `scope` (and callers without
+a default binding) behave exactly as before.
+
 ## Tools
 
 | Tool | Purpose |
