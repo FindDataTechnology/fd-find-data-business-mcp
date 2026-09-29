@@ -75,9 +75,12 @@ RustFS (S3-compatible) via boto3: `FDBIZ_RUSTFS_ENDPOINT` (default
 `http://100.64.0.11:9000`), `FDBIZ_RUSTFS_ACCESS_KEY`, `FDBIZ_RUSTFS_SECRET_KEY`,
 `FDBIZ_RUSTFS_REGION` (default `us-east-1`), `FDBIZ_RUSTFS_WENSHU_BUCKET`
 (default `wenshu`). When the store is unreachable, reads degrade to decoded
-metadata with an honest content-missing note. Corpus caliber: static snapshot
-(incremental crawling suspended; known gaps incl. 2011–2023), ~10.8M
-judgments, 99.9% with captured bodies (html/text).
+metadata with an honest content-missing note. Corpus caliber: static
+snapshot (updates land as one-off batch re-imports; automated incremental
+crawling remains suspended), with known interior gaps inside the window
+(判决年份 2020 verified empty). **Coverage window (live-queried
+2026-09-29): 判决年份 2010–2026, ~16.7M rows** (grew from ~10.8M via the
+2026-09-29 re-import), ~99.9% with captured bodies (html/text).
 
 ### ia35 firm registry (yearly snapshot caliber)
 
@@ -125,8 +128,8 @@ unioned with the static boundary declarations (census anchors as of
 | `gta_panel` | 第一期（已登记） | 1,468 | 1,466 | 1,468 |
 | `china_city_panel` | 第一期（已登记） | 209 | 209 | 209 |
 | `fd_open_data`（镜像概念） | 第一期（已登记） | 452 | 246 | 452 |
-| `ia35`（工商注册，161G，实体为主） | 第二期（未登记） | 0 | — | 未普查 |
-| `wenshu_db`（裁判文书，增量暂停） | 第二期（未登记） | 0 | — | 未普查 |
+| `ia35`（工商注册，161G，实体为主） | 已接入（实体域口径） | 0 | — | 未普查 |
+| `wenshu_db`（裁判文书，判决年份 2010–2026） | 已接入（文档域口径） | 0 | — | 未普查 |
 | `law_db` | 文档域（非指标口径） | 0 | — | 0 |
 
 `law_db` is deliberately outside the indicator caliber: 法条 / 切片 /
