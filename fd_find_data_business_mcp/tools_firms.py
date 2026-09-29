@@ -35,18 +35,20 @@ is a static snapshot: when a new year batch is loaded, ``_SNAPSHOT_YEAR``
 (exported for operators) and the 企业名称 partial index must be advanced
 in step. Every payload carries ``brand: "finddata"``.
 
-Index/plan status (EXPLAIN, 2026-09-29): idx_firms_full_code exists but
-is INVALID (a dead CREATE INDEX CONCURRENTLY — indisvalid/indisready
-false) and 统一社会信用代码 stats are stale (n_distinct 58k vs ~288M
-rows), so until it is rebuilt+ANALYZEd the credit-code plan degenerates
-(seq/backward-batch scan) and live lookups fail soft via the 15s
-statement timeout. The SQL below is deliberately shaped WITHOUT
-``LIMIT 1`` (all batch rows fetched, newest picked in Python): with
-``LIMIT 1`` the planner keeps a backward idx_firms_full_src scan trap
-even after the index turns valid, while the no-LIMIT shape deterministically
-plans as code-index scan + tiny sort. reg_counts DOES plan cleanly:
-province+year filters BitmapOr two idx_reg_counts_prov_year scans on the
-RAW 成立年份 column, with the serial-date conversion riding as a filter.
+Index/plan status (EXPLAIN, 2026-09-29): idx_firms_full_code is VALID
+(7.9GB) and the credit-code path plans as an index scan; 统一社会信用代码
+column stats remain stale (n_distinct ~58k), which inflates row estimates
+but not results — an operator-side ANALYZE will tidy the plans. The
+企业名称 partial index (数据源='2023') is operator-pending: until it
+lands, name-prefix queries scan the 13M-row snapshot batch and can exceed
+the 15s federated statement timeout (honest ``domain_unavailable``). The
+SQL below is deliberately shaped WITHOUT ``LIMIT 1`` (all batch rows
+fetched, newest picked in Python): with ``LIMIT 1`` the planner keeps a
+backward idx_firms_full_src scan trap even with a valid code index, while
+the no-LIMIT shape deterministically plans as code-index scan + tiny
+sort. reg_counts DOES plan cleanly: province+year filters BitmapOr two
+idx_reg_counts_prov_year scans on the RAW 成立年份 column, with the
+serial-date conversion riding as a filter.
 """
 from __future__ import annotations
 
@@ -219,12 +221,12 @@ def ia35_company_search(
     business_scope, former_names) are null where the dictionary has no
     entry — never guessed. Returns
     ``{results: [...], count, truncated, brand}`` (name path adds
-    ``snapshot_year``). Operational envelope: until idx_firms_full_code
-    is rebuilt (currently INVALID — see module docstring) exact code
-    lookups can exceed the 15s federated timeout and surface as
-    ``{"status": "domain_unavailable"}``; the same holds for very rare
-    name prefixes before the 企业名称 partial index lands. A federation
-    failure passes through as ``{"status": "domain_unavailable"}``.
+    ``snapshot_year``). Operational envelope: name-prefix queries scan the
+    whole snapshot batch until the 企业名称 partial index lands
+    (operator-pending), so they can exceed the 15s federated timeout and
+    surface as ``{"status": "domain_unavailable"}``; the credit-code path
+    is index-backed (idx_firms_full_code VALID). A federation failure
+    passes through as ``{"status": "domain_unavailable"}``.
     """
     cc = (credit_code or "").strip()
     np = (name_prefix or "").strip()
