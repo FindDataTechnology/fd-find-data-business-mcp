@@ -16,6 +16,12 @@ from fd_open_data_mcp.db import get_database
 # Unset FDBIZ_JWKS_URI => no auth (local dev / smoke test). Set in deploy to
 # reject every request without a valid Logto-issued JWT (401 before any tool).
 # Algorithm defaults to ES384 (Logto's signing key); override via FDBIZ_ALGORITHM.
+#
+# Service-to-service lane: FDBIZ_INTERNAL_TOKEN (when set) is accepted as a
+# bearer credential in its own right, in addition to Logto JWTs. This is how
+# fd-open-data-mcp's transparent registry reads reach this server (its
+# FD_MCP_BUSINESS_TOKEN) — a fixed shared secret over the tailnet, not a
+# second IdP. Any other value still goes through JWKS verification.
 def _build_auth():
     jwks = os.environ.get("FDBIZ_JWKS_URI")
     if not jwks:
@@ -25,7 +31,33 @@ def _build_auth():
         from fastmcp.server.auth.providers.jwt import JWTVerifier
     except ImportError:
         from fastmcp.server.auth import JWTVerifier  # older fastmcp
-    return JWTVerifier(
+
+    internal_token = os.environ.get("FDBIZ_INTERNAL_TOKEN", "").strip()
+    if not internal_token:
+        return JWTVerifier(
+            jwks_uri=jwks,
+            issuer=os.environ.get("FDBIZ_ISSUER"),
+            audience=os.environ.get("FDBIZ_AUDIENCE"),
+            algorithm=os.environ.get("FDBIZ_ALGORITHM", "ES384"),
+        )
+
+    import hmac as _hmac
+
+    from fastmcp.server.auth.auth import AccessToken
+
+    class _InternalAwareVerifier(JWTVerifier):
+        async def verify_token(self, token: str):
+            if _hmac.compare_digest(token.encode(), internal_token.encode()):
+                return AccessToken(
+                    token=token,
+                    client_id="fd-open-data-mcp-federation",
+                    scopes=[],
+                    expires_at=None,
+                    subject="fd-open-data-mcp",
+                )
+            return await super().verify_token(token)
+
+    return _InternalAwareVerifier(
         jwks_uri=jwks,
         issuer=os.environ.get("FDBIZ_ISSUER"),
         audience=os.environ.get("FDBIZ_AUDIENCE"),

@@ -6,6 +6,15 @@ as a library and reuses its cache, dispatch, and catalog — but exposes **zero
 upstream-provider identity** in responses. Every value is branded `finddata`;
 no `source_used` / `real_source_used` key ever reaches a client.
 
+## Internal service token (FDBIZ_INTERNAL_TOKEN)
+
+With the JWT gate on, the deployment may set `FDBIZ_INTERNAL_TOKEN` in the
+shared `fd-mcp-env` Secret: bearer tokens equal to that value are accepted
+as a service identity (`fd-open-data-mcp-federation`) alongside Logto JWTs —
+the lane fd-open-data-mcp's transparent registry reads call through (its
+`FD_MCP_BUSINESS_TOKEN`). Any other token still goes through JWKS
+verification; the value never grants a user identity.
+
 ## Scope support (indicator-scope)
 
 Every domain search tool takes an optional `scope` parameter — a named
