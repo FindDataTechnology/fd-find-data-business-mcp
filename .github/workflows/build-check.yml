@@ -28,4 +28,4 @@ jobs:
           /tmp/venv/bin/python -m pip install --upgrade pip
           /tmp/venv/bin/python -m pip install dist/*.whl
           /tmp/venv/bin/fd-find-data-business-mcp --help
-          /tmp/venv/bin/python -c "from fd_find_data_business_mcp.server import mcp; import asyncio; t=asyncio.run(mcp.list_tools()); assert len(t)==5, [x.name for x in t]"
+          /tmp/venv/bin/python -c "from fd_find_data_business_mcp.server import mcp; import asyncio; t=asyncio.run(mcp.list_tools()); assert len(t)>=20, [x.name for x in t]"
