@@ -201,3 +201,8 @@ Token-based publishing — tag `v*` triggers `.github/workflows/release.yml`
 (build → twine check → wheel smoke test → publish to PyPI via API token).
 Harbor image built by `.github/workflows/docker-publish.yml` on push to
 `main` / tags.
+
+### Image publish
+
+Images are built by GitHub Actions (`.github/workflows/image.yml`) and pushed to
+Tencent TCR personal edition: `ccr.ccs.tencentyun.com/finddata-business/fd-find-data-business-mcp:sha-<short>` (+ rolling `main`); the base image is TCR's `finddata/fd-open-data-mcp:main`. Release ritual: dev pushes go to gitee; publishing = `git push github main`. The Jenkins→Harbor path is the fallback channel only.
