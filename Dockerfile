@@ -13,7 +13,7 @@
 #
 # Standing coupling: this image follows the base's moving :torch tag; a
 # rebuilt base is picked up by the next build here.
-FROM 100.64.0.8:30880/finddata/fd-open-data-mcp:torch
+FROM ccr.ccs.tencentyun.com/finddata/fd-open-data-mcp:main
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
