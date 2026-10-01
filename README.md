@@ -1,4 +1,8 @@
-# fd-find-data-business-mcp
+# fd-find-data-business-mcp（内部仓）
+
+> **2026-10-01 起私有**（change `five-lines-public-surface`；决策记录：工作区 `docs/adr/0001-public-surface-boundary-and-facade.md`）。
+> 本仓是柏讯 wire 线的云端商业数据联邦，对外口径收敛到官网 `/products/wire` 条目；本 README 为内部运维文档。
+> PyPI 通道已关闭：`release.yml` 删除并禁用、`PYPI_API_TOKEN` 已吊销、0.1.0–0.1.2 已 yank；付费客户一律**镜像交付**。
 
 Commercial, login-gated MCP server that serves FindData's own crawled data to
 paying users. Depends on [`fd-open-data-mcp`](https://pypi.org/project/fd-open-data-mcp/)
@@ -138,10 +142,12 @@ the expected state, not a coverage gap. If the registry is unreachable,
 `registry_coverage` fails soft: the static declarations above are served
 with a `note` and the verified split left null.
 
-## Install
+## Install（内部）
+
+不在 PyPI 发布。本地开发从源码安装：
 
 ```bash
-pip install fd-find-data-business-mcp
+pip install .
 ```
 
 ## Run (local dev, no auth)
@@ -197,12 +203,9 @@ users' tokens must carry `aud: https://api.finddatatech.cloud/mcp`.
 
 ## Publish
 
-Token-based publishing — tag `v*` triggers `.github/workflows/release.yml`
-(build → twine check → wheel smoke test → publish to PyPI via API token).
-Harbor image built by `.github/workflows/docker-publish.yml` on push to
-`main` / tags.
+**PyPI 通道已关闭（2026-10-01）**：`release.yml` 已删除并禁用，`PYPI_API_TOKEN` 已吊销——任何 tag 都不会再向 PyPI 发布。历史版本 0.1.0–0.1.2 yank 后 pip 默认不再解析（指定版本号仍可装，属已接受的暴露面）。
 
-### Image publish
+### Image publish（唯一交付通道）
 
 Images are built by GitHub Actions (`.github/workflows/image.yml`) and pushed to
 Tencent TCR personal edition: `ccr.ccs.tencentyun.com/finddata-business/fd-find-data-business-mcp:sha-<short>` (+ rolling `main`); the base image is TCR's `finddata/fd-open-data-mcp:main`. Release ritual: dev pushes go to gitee; publishing = `git push github main`. The Jenkins→Harbor path is the fallback channel only.
