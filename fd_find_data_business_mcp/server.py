@@ -7,8 +7,10 @@ value is branded ``finddata``. Auth is Logto JWT via FastMCP's ``JWTVerifier``.
 from __future__ import annotations
 
 import os
+from typing import Any
 
 from fastmcp import FastMCP
+from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 
 from fd_open_data_mcp.db import get_database
 
@@ -65,6 +67,56 @@ def _build_auth():
     )
 
 
+def _count_read_rows(tool_name: str, structured: Any) -> int | None:
+    """Derive ``rows_returned`` from a bare-payload read tool's wire shape.
+
+    ``read`` serves its bare list wrapped by fastmcp as ``{"result": [rows]}``
+    (the framework's pre-existing convention for non-object outputs);
+    ``unavailable`` placeholder rows are not observation rows and don't count.
+    ``read_range`` serves the bare ``{concept_id: [rows]}`` map. Any other
+    shape returns None — the result is then left unstamped, so a missing
+    ``rows_returned`` raises a billing-side alert instead of a wrong number.
+    """
+    if tool_name == "read":
+        rows = structured.get("result") if isinstance(structured, dict) else None
+        if isinstance(rows, list):
+            return sum(1 for r in rows
+                       if not (isinstance(r, dict)
+                               and r.get("status") == "unavailable"))
+    elif tool_name == "read_range":
+        if isinstance(structured, dict):
+            return sum(len(v) for v in structured.values()
+                       if isinstance(v, list))
+    return None
+
+
+class _RowsReturnedMiddleware(Middleware):
+    """Metering stamp for the bare-payload read tools (wire-platform-v1 1.1).
+
+    ``read``/``read_range`` keep their original bare wire payloads (list /
+    ``{concept_id: rows}``) — no envelope field is added, so mirror clients
+    that parse the bare structure are unaffected. ``rows_returned`` rides the
+    protocol-standard result ``_meta`` instead, computed from the served
+    payload after the tool ran. Existing ``_meta`` keys (fastmcp's
+    wrap-result marker) are preserved, never replaced. The in-envelope
+    ``rows_returned`` of the five domain read tools is stamped separately in
+    their wrappers (they were envelope-shaped from the start).
+    """
+
+    async def on_call_tool(
+        self, context: MiddlewareContext, call_next: CallNext,
+    ):
+        result = await call_next(context)
+        name = context.message.name
+        if name in ("read", "read_range"):
+            count = _count_read_rows(name, result.structured_content)
+            if count is not None:
+                meta = dict(result.meta or {})
+                meta["rows_returned"] = count
+                result.meta = meta
+        return result
+
+
 mcp = FastMCP(
     name="finddata",
     instructions=(
@@ -77,6 +129,7 @@ mcp = FastMCP(
         "is FindData-branded."
     ),
     auth=_build_auth(),
+    middleware=[_RowsReturnedMiddleware()],
 )
 
 
@@ -107,6 +160,21 @@ def _coerce(v):
         return v
 
 
+def _with_rows_returned(out: dict) -> dict:
+    """Stamp the platform metering contract onto a read tool's envelope.
+
+    ``rows_returned`` (int) = observation rows actually served in this
+    response — the wire platform's per-row billing anchor (change:
+    wire-platform-v1). Envelopes without a ``results`` list (fail-soft
+    ``domain_unavailable``, ``unknown_variable``, scope-gate errors) are not
+    successes and pass through untouched. Additive only: every existing
+    field is preserved.
+    """
+    if isinstance(out, dict) and isinstance(out.get("results"), list):
+        out["rows_returned"] = len(out["results"])
+    return out
+
+
 # --- Read: serve crawled cache only (fresh OR stale); provider-independent ----
 @mcp.tool
 def read(concept_id: int, entity_type: str, entity_id: int, dates: list[str]) -> list[dict]:
@@ -116,6 +184,9 @@ def read(concept_id: int, entity_type: str, entity_id: int, dates: list[str]) ->
     zero runtime dependency on upstream providers: the read path never
     dispatches to akshare/wbgapi/etc.; it reads only FindData's crawled store.
     A never-crawled date returns ``unavailable``. No value is fabricated.
+    The bare list payload is unchanged; the observation-row count rides the
+    MCP result ``_meta`` as ``rows_returned`` (unavailable placeholders not
+    counted).
     """
     from fd_open_data_mcp.fetch.cache import read_cache
 
@@ -152,6 +223,8 @@ def read_range(
     Cached rows (fresh or stale) are served; a cold range (no rows) is fetched
     synchronously and recorded. Returns ``{concept_id: [{date, value, unit,
     brand: "finddata"}, ...]}``; concepts with no data get an empty list.
+    The bare map payload is unchanged; the total observation-row count rides
+    the MCP result ``_meta`` as ``rows_returned``.
     """
     from fd_open_data_mcp.fetch.cache import read_cache_range
     from fd_open_data_mcp.fetch.dispatch import read_range as _read_range
@@ -374,14 +447,15 @@ def yearbook_read(
     """Read a yearbook indicator's annual series, optionally for one region
     and year range.
 
-    Returns {results: [{year, region, value, unit, brand}], count, truncated};
-    a filter with no data returns an empty results list (truthful, not an
-    error). Latest edition wins when multiple yearbook editions cover the
-    same region-year.
+    Returns {results: [{year, region, value, unit, brand}], count, truncated,
+    rows_returned}; a filter with no data returns an empty results list
+    (truthful, not an error). Latest edition wins when multiple yearbook
+    editions cover the same region-year. ``rows_returned`` = observation rows
+    served (equal to count).
     """
     from fd_find_data_business_mcp.tools_yearbook import yearbook_read as _impl
 
-    return _strip(_impl(indicator_id, region, start_year, end_year, limit))
+    return _with_rows_returned(_strip(_impl(indicator_id, region, start_year, end_year, limit)))
 
 
 @mcp.tool
@@ -634,12 +708,13 @@ def ia35_reg_counts_read(
     Province+year filters use the (province, year) index; province-only
     queries may exceed the query budget. Returns {results: [{year,
     province, city, county, industry, industry_code, new_firms, brand}],
-    count, truncated, note?}.
+    count, truncated, rows_returned, note?}. ``rows_returned`` = aggregate
+    observation rows served (equal to count).
     """
     from fd_find_data_business_mcp.tools_firms import (
         ia35_reg_counts_read as _impl)
 
-    return _strip(_impl(start_year, end_year, province, industry, limit))
+    return _with_rows_returned(_strip(_impl(start_year, end_year, province, industry, limit)))
 
 
 @mcp.tool
@@ -682,12 +757,13 @@ def wb_read(
 
     ``countries`` accepts ISO3 codes (CHN) or Chinese names (中国). Returns
     {results: [{year, country, country_name, value, unit, brand}], count,
-    truncated}; missing country-year cells are absent (truthful, never
-    fabricated); an unknown indicator or country returns an empty list.
+    truncated, rows_returned}; missing country-year cells are absent
+    (truthful, never fabricated); an unknown indicator or country returns an
+    empty list. ``rows_returned`` = observation rows served (equal to count).
     """
     from fd_find_data_business_mcp.tools_wb import wb_read as _impl
 
-    return _strip(_impl(indicator_code, countries, start_year, end_year, limit))
+    return _with_rows_returned(_strip(_impl(indicator_code, countries, start_year, end_year, limit)))
 
 
 @mcp.tool
@@ -730,13 +806,14 @@ def gta_read(
     """Read one GTA panel variable's firm-year values.
 
     Returns {results: [{firm_id, firm, year, value, brand}], count,
-    truncated}, ordered by year then firm; an unknown variable returns
-    {"status": "unknown_variable"}; an empty year range is a truthful empty
-    list. Use gta_search_variables first to find variable codes.
+    truncated, rows_returned}, ordered by year then firm; an unknown
+    variable returns {"status": "unknown_variable"}; an empty year range is
+    a truthful empty list. Use gta_search_variables first to find variable
+    codes. ``rows_returned`` = observation rows served (equal to count).
     """
     from fd_find_data_business_mcp.tools_gta import gta_read as _impl
 
-    return _strip(_impl(variable, start_year, end_year, firm_ids, limit))
+    return _with_rows_returned(_strip(_impl(variable, start_year, end_year, firm_ids, limit)))
 
 
 @mcp.tool
@@ -778,12 +855,13 @@ def city_read(
 
     ``city`` accepts a city code or Chinese name. Returns
     {results: [{year, city_code, city_name, value, brand}], count,
-    truncated}; an unknown variable returns {"status": "unknown_variable"};
-    a filter with no data is a truthful empty list.
+    truncated, rows_returned}; an unknown variable returns
+    {"status": "unknown_variable"}; a filter with no data is a truthful
+    empty list. ``rows_returned`` = observation rows served (equal to count).
     """
     from fd_find_data_business_mcp.tools_city import city_read as _impl
 
-    return _strip(_impl(variable, city, start_year, end_year, limit))
+    return _with_rows_returned(_strip(_impl(variable, city, start_year, end_year, limit)))
 
 
 @mcp.tool
