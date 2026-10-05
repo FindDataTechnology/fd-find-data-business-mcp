@@ -6,8 +6,12 @@ registered and how many of those are verified, alongside the census anchor
 counts (``actual_in_source``) and the sources that are deliberately
 outside the registry: ia35 and wenshu_db (served since 2026-09 as
 entity-domain / document-domain calibers — registered 0 by design, not
-indicator sources) and law_db (document-domain caliber: laws / chunks /
-guide cases are document assets, not indicators). Live counts come from
+indicator sources), law_db (document-domain caliber: laws / chunks /
+guide cases are document assets, not indicators) and daas (supply-domain
+caliber since 2026-10: the DAAS workspace's catalog tables — sources /
+fetch functions / indicator rules / rules — served read-only; its computed
+indicators are a separate caliber from this registry, and its entity
+mirror is pending). Live counts come from
 one GROUP BY query; the boundary declarations are static. The envelope
 also carries ``calibers`` — the authoritative three-caliber aggregation
 (registered / verified / servable, ADR-0002) every presentation surface
@@ -61,6 +65,14 @@ _STATIC_SOURCES: dict[str, dict[str, Any]] = {
         "label_zh": "法律文档域", "phase": "文档域（非指标口径）",
         "actual_in_source": 0,
         "note": "法条/切片/指导案例为文档资产，非指标口径，登记 0 属预期"},
+    "daas": {
+        "label_zh": "DAAS 供给域目录（数据源/取数函数/指标规则/统一规则）",
+        "phase": "供给域（非指标口径）",
+        "actual_in_source": 0,
+        "note": "2026-10 起服务化：数据机 daas 库 4 张目录表只读"
+                "（sources/daas_functions/indicator_rules/rules）；"
+                "计算型指标口径与登记指标两套井水不犯河水，登记 0 属预期；"
+                "实体目录表待同步"},
 }
 
 _COUNTS_SQL = """

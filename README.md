@@ -62,7 +62,9 @@ a default binding) behave exactly as before.
 
 ## Domain federation (yearbook / law / world bank / GTA / city panel)
 
-The ten domain tools read the Windows data machine's PostgreSQL in place,
+The twenty-six domain tools (nine sources × search/read pairs plus the
+eight-tool `daas` supply domain; 2026-10-06 code caliber — every
+`@mcp.tool` below the five core reads except `registry_coverage`) read the Windows data machine's PostgreSQL in place,
 read-only, via `FDBIZ_DOMAIN_PG_URL` (e.g.
 `postgresql://fdbiz_ro:***@100.64.0.5:5432/postgres`; role `fdbiz_ro` has
 SELECT-only grants on `yearbook_catalog`, `law_db`, `world_bank`, `gta_panel`,

@@ -372,6 +372,7 @@ _TOOL_SOURCES = {
     "guide_cases": ["guide_cases"],
     "wenshu": ["wenshu_db"],
     "ia35": ["ia35"],
+    "daas": ["daas"],
 }
 
 
@@ -862,6 +863,216 @@ def city_read(
     from fd_find_data_business_mcp.tools_city import city_read as _impl
 
     return _with_rows_returned(_strip(_impl(variable, city, start_year, end_year, limit)))
+
+
+# --- DAAS supply domain (facet-mcp-foundation-v1) ----------------------------
+# Read-only catalog/caliber/reference federation over the data machine's daas
+# database (sources / daas_functions / indicator_rules / rules mirrors). Same
+# fail-soft discipline as every domain above; observation values are outside
+# v1. Tool names carry the ``daas_`` prefix (distinct caliber from the
+# indicator registry's macro catalogs) and every exposure is bounded by the
+# DAAS tool-surface manifest's commercial set (asserted in tests).
+
+@mcp.tool
+def daas_list_sources(
+    keyword: str | None = None,
+    enabled: bool | None = None,
+    limit: int = 100,
+    scope: str | None = None,
+) -> dict:
+    """List FindData's DAAS supply catalog of data sources.
+
+    Each row: {id, name, label, description, url, enabled, brand}. ``keyword``
+    substring-matches name/label/description; ``enabled`` filters by state.
+    Source configuration (``config``) is never exposed. Returns
+    {results, count, truncated, rows_returned}; ``rows_returned`` = catalog
+    rows served (equal to count). If the daas store is unreachable, returns
+    {"status": "domain_unavailable"}. ``scope``: named retrieval scope — an
+    unknown scope errors explicitly; a scope excluding the daas source
+    returns an explainable empty result; a scoped response names the scope
+    in effect.
+    """
+    from fd_find_data_business_mcp.tools_daas import daas_list_sources as _impl
+
+    meta, gate = _scope_gate(scope, "daas")
+    if gate is not None:
+        return gate
+    out = _with_rows_returned(_strip(_impl(keyword, enabled, limit)))
+    if meta:
+        out["scope"] = meta
+        _scope_record(meta, out.get("count", 0))
+    return out
+
+
+@mcp.tool
+def daas_search_functions(
+    keyword: str,
+    category: str | None = None,
+    source_id: int | None = None,
+    limit: int = 50,
+    scope: str | None = None,
+) -> dict:
+    """Search FindData DAAS fetch functions by fuzzy name/label/description.
+
+    Ranked exact > prefix > contains; ``category`` filters exactly (e.g.
+    Reference); ``source_id`` pins one catalog source. Returns {results:
+    [{id, source_id, name, label, description, category, output_type,
+    frequency, brand}], count, truncated, rows_returned} — the request-shape
+    ``parameters`` caliber rides only with daas_get_function_detail.
+    ``rows_returned`` = catalog rows served (equal to count).
+    ``scope``: named retrieval scope — unknown scope errors explicitly; a
+    scope excluding the daas source returns an explainable empty result; a
+    scoped response names the scope in effect.
+    """
+    from fd_find_data_business_mcp.tools_daas import daas_search_functions as _impl
+
+    meta, gate = _scope_gate(scope, "daas")
+    if gate is not None:
+        return gate
+    out = _with_rows_returned(_strip(_impl(keyword, category, source_id, limit)))
+    if meta:
+        out["scope"] = meta
+        _scope_record(meta, out.get("count", 0))
+    return out
+
+
+@mcp.tool
+def daas_get_function_detail(function_id: int) -> dict:
+    """Read one DAAS fetch function's full caliber by id (from search).
+
+    Adds ``parameters`` — the function's request shape (path, method, query
+    params, gating) — plus output_type and frequency. An unknown id returns
+    {"status": "not_found"}; an unreachable daas store returns
+    {"status": "domain_unavailable"}.
+    """
+    from fd_find_data_business_mcp.tools_daas import (
+        daas_get_function_detail as _impl)
+
+    return _strip(_impl(function_id))
+
+
+@mcp.tool
+def daas_list_indicators(
+    keyword: str | None = None,
+    datasource: str | None = None,
+    enabled: bool | None = None,
+    limit: int = 100,
+    scope: str | None = None,
+) -> dict:
+    """List FindData's DAAS computed-indicator rule catalog.
+
+    Each row is one indicator rule's caliber: datasource function, source
+    table/columns, operator (op, e.g. sma). ``keyword`` substring-matches
+    name/indicator_name; ``datasource`` filters exactly; ``enabled`` by rule
+    state. Returns {results, count, truncated, rows_returned};
+    ``rows_returned`` = catalog rows served (equal to count). These computed
+    indicators are a separate caliber from the macro indicator registry
+    (see registry_coverage). If the daas store is unreachable, returns
+    {"status": "domain_unavailable"}. ``scope``: named retrieval scope — an
+    unknown scope errors explicitly; a scope excluding the daas source
+    returns an explainable empty result; a scoped response names the scope
+    in effect.
+    """
+    from fd_find_data_business_mcp.tools_daas import daas_list_indicators as _impl
+
+    meta, gate = _scope_gate(scope, "daas")
+    if gate is not None:
+        return gate
+    out = _with_rows_returned(_strip(_impl(keyword, datasource, enabled, limit)))
+    if meta:
+        out["scope"] = meta
+        _scope_record(meta, out.get("count", 0))
+    return out
+
+
+@mcp.tool
+def daas_get_indicator(indicator_id: int) -> dict:
+    """Read one DAAS indicator rule's complete caliber by id (from list).
+
+    Adds ``params_json`` — the operator arguments (e.g. {"window": 5} for an
+    sma rule) — to the list-row projection. An unknown id returns
+    {"status": "not_found"}; an unreachable daas store returns
+    {"status": "domain_unavailable"}.
+    """
+    from fd_find_data_business_mcp.tools_daas import daas_get_indicator as _impl
+
+    return _strip(_impl(indicator_id))
+
+
+@mcp.tool
+def daas_list_rules(
+    rule_type: str | None = None,
+    limit: int = 100,
+    scope: str | None = None,
+) -> dict:
+    """List FindData's DAAS unified rule catalog.
+
+    Each row: {id, name, rule_type, target, config_json, description,
+    enabled, brand}; ``config_json`` is the rule's caliber. ``rule_type``
+    filters exactly. Returns {results, count, truncated, rows_returned};
+    ``rows_returned`` = catalog rows served (equal to count). If the daas
+    store is unreachable, returns {"status": "domain_unavailable"}.
+    ``scope``: named retrieval scope — an unknown scope errors explicitly;
+    a scope excluding the daas source returns an explainable empty result;
+    a scoped response names the scope in effect.
+    """
+    from fd_find_data_business_mcp.tools_daas import daas_list_rules as _impl
+
+    meta, gate = _scope_gate(scope, "daas")
+    if gate is not None:
+        return gate
+    out = _with_rows_returned(_strip(_impl(rule_type, limit)))
+    if meta:
+        out["scope"] = meta
+        _scope_record(meta, out.get("count", 0))
+    return out
+
+
+@mcp.tool
+def daas_search_entities(
+    keyword: str,
+    entity_type: str | None = None,
+    limit: int = 50,
+    scope: str | None = None,
+) -> dict:
+    """Search FindData DAAS entities (stocks + countries) by name/ticker/code.
+
+    DATA READINESS: the entities mirror table is not yet provisioned in the
+    daas store (the entity master is fd-open-data-mcp; the v1 sync scope
+    covers the 4 catalog tables only), so until it lands every call returns
+    {"status": "domain_unavailable"} — the tool is registered but its data
+    is pending, which is a legal state. Once provisioned, returns {results:
+    [{id, entity_type, code, name, ticker, exchange, country_code,
+    description, brand}], count, truncated, rows_returned}; ``entity_type``
+    filters exactly (stock / country). ``scope``: named retrieval scope —
+    an unknown scope errors explicitly; a scope excluding the daas source
+    returns an explainable empty result; a scoped response names the scope
+    in effect.
+    """
+    from fd_find_data_business_mcp.tools_daas import daas_search_entities as _impl
+
+    meta, gate = _scope_gate(scope, "daas")
+    if gate is not None:
+        return gate
+    out = _with_rows_returned(_strip(_impl(keyword, entity_type, limit)))
+    if meta:
+        out["scope"] = meta
+        _scope_record(meta, out.get("count", 0))
+    return out
+
+
+@mcp.tool
+def daas_get_entity(entity_id: int) -> dict:
+    """Read one DAAS entity's detail by id (from search).
+
+    DATA READINESS: as with daas_search_entities — the entities mirror table
+    is not yet provisioned in the daas store, so calls return
+    {"status": "domain_unavailable"} until it lands. Once provisioned: the
+    full entity row; an unknown id returns {"status": "not_found"}.
+    """
+    from fd_find_data_business_mcp.tools_daas import daas_get_entity as _impl
+
+    return _strip(_impl(entity_id))
 
 
 @mcp.tool

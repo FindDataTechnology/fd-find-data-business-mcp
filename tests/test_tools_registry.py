@@ -88,7 +88,7 @@ class TestCoverageUnit:
         fake = FakeDomain(_first_batch())
         monkeypatch.setattr(tr, "domain_query", fake)
         r = tr.registry_coverage()
-        assert r["count"] == 8  # 5 registered + ia35 + wenshu_db + law_db
+        assert r["count"] == 9  # 5 registered + ia35 + wenshu_db + law_db + daas
         assert r["census_as_of"] == "2026-09-22"
         assert "note" not in r  # live counts served — no degradation note
         by = _by_source(r["results"])
@@ -155,7 +155,7 @@ class TestCoverageUnit:
         extra = _by_source(r["results"])["new_source"]
         assert extra["registered"] == 5
         assert extra["phase"] == "已登记（未声明）"
-        assert r["count"] == 9
+        assert r["count"] == 10
 
     def test_query_targets_registry_db_with_group_by(self, monkeypatch):
         fake = FakeDomain([])
@@ -174,7 +174,7 @@ class TestCoverageUnit:
         monkeypatch.setattr(tr, "domain_query", FakeDomain(fail))
         r = tr.registry_coverage()
         assert "note" in r and "unavailable" in r["note"]
-        assert r["count"] == 8
+        assert r["count"] == 9
         by = _by_source(r["results"])
         # Phase-1 rows fall back to the census anchor; the verified split
         # is unknown without the registry.
