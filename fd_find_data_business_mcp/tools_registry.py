@@ -8,9 +8,12 @@ outside the registry: ia35 and wenshu_db (served since 2026-09 as
 entity-domain / document-domain calibers — registered 0 by design, not
 indicator sources) and law_db (document-domain caliber: laws / chunks /
 guide cases are document assets, not indicators). Live counts come from
-one GROUP BY query; the boundary declarations are static. Fail-soft: when
-the registry is unreachable the static part is served with a note and live
-counts left null.
+one GROUP BY query; the boundary declarations are static. The envelope
+also carries ``calibers`` — the authoritative three-caliber aggregation
+(registered / verified / servable, ADR-0002) every presentation surface
+must take indicator counts from. Fail-soft: when the registry is
+unreachable the static part is served with a note, caliber totals are
+null, and nothing raises.
 """
 from __future__ import annotations
 
@@ -69,6 +72,54 @@ FROM registry_entries
 GROUP BY source_db
 """
 
+#: Servable caliber (ADR-0002 three-caliber aggregation): verified registry
+#: entries UNION the active concepts whose code no verified entry already
+#: covers (cross-source semantic_code equivalence dedupe). Both tables live
+#: in the same ``fd_open_data`` database; one scalar row comes back.
+#: The dedupe is a NOT EXISTS anti-join, NOT ``code NOT IN (...)``: the live
+#: registry carries a verified row with a NULL semantic_code, and one NULL
+#: makes ``NOT IN`` exclude every row (measured 2026-10-06: NOT IN gave
+#: servable 3,421; NOT EXISTS gives the authoritative 3,421 + 206 = 3,627).
+_SERVABLE_SQL = """
+SELECT (SELECT count(*) FROM registry_entries WHERE verified)
+     + (SELECT count(*) FROM concepts c
+        WHERE c.deprecated IS NOT TRUE
+          AND NOT EXISTS (SELECT 1 FROM registry_entries r
+                          WHERE r.verified AND r.semantic_code = c.code))
+     AS servable_total
+"""
+
+#: One plain-language composition note per caliber (spec「口径构成可解释」):
+#: a reader must be able to tell what each caliber includes/excludes without
+#: reading this module.
+_CALIBER_NOTES = {
+    "registered_total": (
+        "登记指标 = registry_entries 全量（verified 与未核验都算）；"
+        "目录规模与营销计量口径"),
+    "verified_total": (
+        "verified 总量 = registry_entries 中已通过语义命名核验（verified）的条目；"
+        "「可直读取数」的登记子集"),
+    "servable_total": (
+        "可服务指标 = verified 登记条目 ∪ 活跃概念（concepts 中 deprecated IS NOT TRUE "
+        "且 code 不与任一 verified 条目的 semantic_code 重复）；"
+        "「即刻可取数」口径，跨源等价去重"),
+}
+
+
+def _servable_total() -> int | None:
+    """The servable caliber count, or None when the query is unusable.
+
+    Fail-soft by shape-check rather than exception: a degraded/unexpected
+    response (domain_unavailable dict, wrong row count, missing key) means
+    "unknown this call", never a raise.
+    """
+    rows = domain_query(_DB, _SERVABLE_SQL)
+    if (isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict)):
+        value = rows[0].get("servable_total")
+        if isinstance(value, int):
+            return value
+    return None
+
 
 def _coverage(registered: int | None, actual: int | None) -> float | None:
     """Registration coverage = registered / in-source anchors, 4 decimals."""
@@ -103,18 +154,22 @@ def _row(
 
 
 def registry_coverage() -> dict:
-    """Per-source indicator-registry coverage (live counts + boundary).
+    """Per-source indicator-registry coverage (live counts + boundary + calibers).
 
     One live GROUP BY over ``fd_open_data.registry_entries`` gives
     registered / verified / unverified per source_db; the static
     declarations supply ``label_zh``, ``phase``, ``actual_in_source`` (the
     2026-09-22 census anchors) and the out-of-registry sources. Returns
-    ``{results, count, census_as_of}`` with rows
+    ``{results, count, census_as_of, calibers}`` with rows
     ``{source_db, label_zh, phase, registered, verified, unverified,
-    actual_in_source, coverage[, note]}``. Fail-soft: when the registry is
-    unreachable the static part is served with a ``note`` on the envelope
-    and live counts (verified/unverified) left null; registered falls back
-    to the census anchor.
+    actual_in_source, coverage[, note]}``. ``calibers`` is the authoritative
+    three-caliber aggregation (ADR-0002, spec「覆盖口径权威聚合」) — the one
+    place every presentation surface takes indicator counts from:
+    ``registered_total`` (whole registry), ``verified_total``,
+    ``servable_total`` (verified entries ∪ active concepts, cross-source
+    dedupe), each with a composition note. Fail-soft: when the registry is
+    unreachable the static part is served with a ``note`` on the envelope,
+    caliber totals are left null with their own note, and nothing raises.
     """
     rows = domain_query(_DB, _COUNTS_SQL)
     live: dict[str, dict[str, Any]] = {}
@@ -149,10 +204,35 @@ def registry_coverage() -> dict:
                 lr["registered"], lr["verified"], lr["unverified"],
                 None, "静态声明缺失；请补充 label/口径"))
 
+    # Three-caliber aggregation (ADR-0002). registered/verified totals are
+    # the sums over the GROUP BY — it partitions the whole table, so the
+    # sums ARE the full-table counts; servable needs the concepts table and
+    # rides its own scalar query.
+    calibers: dict[str, Any] = {
+        "registered_total": None,
+        "verified_total": None,
+        "servable_total": None,
+        "notes": dict(_CALIBER_NOTES),
+    }
+    if fallback:
+        calibers["note"] = ("registry live counts unavailable; caliber "
+                            "totals unknown this call")
+    else:
+        calibers["registered_total"] = sum(r["registered"] for r in live.values())
+        calibers["verified_total"] = sum(r["verified"] for r in live.values())
+        servable = _servable_total()
+        if servable is None:
+            calibers["notes"]["servable_total"] = (
+                "servable 口径本次不可知（concepts 聚合查询失败/不可用）；"
+                + _CALIBER_NOTES["servable_total"])
+        else:
+            calibers["servable_total"] = servable
+
     out: dict[str, Any] = {
         "results": results,
         "count": len(results),
         "census_as_of": _CENSUS_AS_OF,
+        "calibers": calibers,
     }
     if fallback:
         out["note"] = ("registry live counts unavailable; static "

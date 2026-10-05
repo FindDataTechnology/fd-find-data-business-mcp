@@ -866,19 +866,23 @@ def city_read(
 
 @mcp.tool
 def registry_coverage() -> dict:
-    """Indicator-registry coverage per source (registration boundary).
+    """Indicator-registry coverage per source (registration boundary + calibers).
 
     Returns {results: [{source_db, label_zh, phase, registered, verified,
-    unverified, actual_in_source, coverage}], count, census_as_of}: live
-    registered/verified counts from the unified indicator registry
+    unverified, actual_in_source, coverage}], count, census_as_of, calibers}:
+    live registered/verified counts from the unified indicator registry
     (fd_open_data.registry_entries) for the five registered sources
     (world_bank, yearbook_catalog, gta_panel, china_city_panel,
     fd_open_data mirror), plus the phase-2 unregistered sources (ia35
     工商注册, wenshu_db 裁判文书) and law_db, which is document-domain
     caliber (法条/切片/指导案例 are documents, not indicators — 0 entries
     is expected). coverage = registered / actual_in_source against the
-    census anchors. Fail-soft: if the registry is unreachable the static
-    declarations are served with a note.
+    census anchors. ``calibers`` is the authoritative indicator-count
+    aggregation (登记指标 registered_total / verified 总量 verified_total /
+    可服务指标 servable_total), each with a composition note — presentation
+    surfaces take their numbers from here, never hand-written. Fail-soft:
+    if the registry is unreachable the static declarations are served with
+    a note and caliber totals are null.
     """
     from fd_find_data_business_mcp.tools_registry import registry_coverage as _impl
 

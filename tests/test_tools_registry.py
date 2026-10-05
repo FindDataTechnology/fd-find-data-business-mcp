@@ -42,6 +42,26 @@ class FakeDomain:
         return self.response
 
 
+class SqlDispatchFake(FakeDomain):
+    """FakeDomain that answers per SQL substring.
+
+    ``registry_coverage`` now runs two live queries (per-source GROUP BY +
+    the servable-caliber scalar); routes map a distinctive SQL substring to
+    the canned response for that query.
+    """
+
+    def __init__(self, routes: list[tuple[str, object]]):
+        super().__init__(None)
+        self.routes = routes
+
+    def __call__(self, dbname, sql, params=None):
+        self.calls.append((dbname, sql, params or {}))
+        for needle, response in self.routes:
+            if needle in sql:
+                return response
+        raise AssertionError(f"unexpected SQL in fake dispatch: {sql[:120]!r}")
+
+
 def _live(source_db, registered, verified):
     """Shape of the GROUP BY projection for one source_db."""
     return {"source_db": source_db, "registered": registered,
@@ -141,7 +161,7 @@ class TestCoverageUnit:
         fake = FakeDomain([])
         monkeypatch.setattr(tr, "domain_query", fake)
         tr.registry_coverage()
-        assert len(fake.calls) == 1  # single live query
+        assert len(fake.calls) == 2  # GROUP BY + servable caliber query
         dbname, sql, params = fake.calls[0]
         assert dbname == "fd_open_data"
         assert "registry_entries" in sql
@@ -174,6 +194,116 @@ class TestCoverageUnit:
         for row in r["results"]:
             assert "source" not in row
             assert "source_db" in row
+
+
+class TestCalibers:
+    """The three-caliber aggregation row (indicator-caliber-unification 1.3).
+
+    Fixture self-proves the formula (never live numbers): from
+    ``_first_batch`` — registered_total = 57,553, verified_total = 3,420;
+    the servable fixture row encodes 452 active concepts of which 246 are
+    already covered by verified semantic_codes -> 206 free concepts ->
+    servable = 3,420 + 206 = 3,626.
+    """
+
+    _GROUP_BY = "GROUP BY source_db"
+    _SERVABLE_NEEDLE = "servable_total"
+
+    @staticmethod
+    def _fake(monkeypatch, servable_response):
+        fake = SqlDispatchFake([
+            (TestCalibers._GROUP_BY, _first_batch()),
+            (TestCalibers._SERVABLE_NEEDLE, servable_response),
+        ])
+        monkeypatch.setattr(tr, "domain_query", fake)
+        return fake
+
+    def test_calibers_match_hand_computation(self, monkeypatch):
+        self._fake(monkeypatch, [{"servable_total": 3626}])
+        r = tr.registry_coverage()
+        cal = r["calibers"]
+        # hand-computed from _first_batch(): sums over the GROUP BY rows
+        assert cal["registered_total"] == 1499 + 53925 + 1468 + 209 + 452
+        assert cal["registered_total"] == 57553
+        assert cal["verified_total"] == 1499 + 0 + 1466 + 209 + 246
+        assert cal["verified_total"] == 3420
+        # the servable formula, fixture-encoded: 3420 verified + (452-206)
+        assert cal["servable_total"] == 3420 + (452 - 246)
+        assert cal["servable_total"] == 3626
+        assert "note" not in r  # live path — no envelope degradation note
+
+    def test_notes_explain_each_caliber(self, monkeypatch):
+        self._fake(monkeypatch, [{"servable_total": 3626}])
+        cal = tr.registry_coverage()["calibers"]
+        assert set(cal["notes"]) == {"registered_total", "verified_total",
+                                     "servable_total"}
+        for name, note in cal["notes"].items():
+            assert isinstance(note, str) and note.strip(), name
+        # the servable note self-describes the formula (spec「口径构成可解释」)
+        servable_note = cal["notes"]["servable_total"]
+        assert "活跃概念" in servable_note
+        assert "semantic_code" in servable_note
+        assert "去重" in servable_note
+
+    def test_totals_include_undeclared_sources(self, monkeypatch):
+        # the GROUP BY's live side (undeclared sources) counts toward totals
+        fake = SqlDispatchFake([
+            (self._GROUP_BY, _first_batch() + [_live("new_source", 5, 5)]),
+            (self._SERVABLE_NEEDLE, [{"servable_total": 3631}]),
+        ])
+        monkeypatch.setattr(tr, "domain_query", fake)
+        cal = tr.registry_coverage()["calibers"]
+        assert cal["registered_total"] == 57553 + 5
+        assert cal["verified_total"] == 3420 + 5
+
+    def test_second_query_is_the_servable_formula_on_the_same_db(self, monkeypatch):
+        fake = self._fake(monkeypatch, [{"servable_total": 3626}])
+        tr.registry_coverage()
+        assert len(fake.calls) == 2
+        for dbname, _, _ in fake.calls:
+            assert dbname == "fd_open_data"  # concepts + registry_entries same DB
+        _, sql, params = fake.calls[1]
+        assert "concepts" in sql
+        assert "deprecated IS NOT TRUE" in sql
+        # NULL-safe anti-join: a verified row with a NULL semantic_code must
+        # not make NOT IN exclude every concept (live-verified 2026-10-06).
+        assert "NOT EXISTS" in sql
+        assert "semantic_code = c.code" in sql
+        assert params == {}
+
+    def test_unavailable_registry_leaves_calibers_null_with_note(self, monkeypatch):
+        fail = {"status": "domain_unavailable", "detail": "OperationalError"}
+        monkeypatch.setattr(tr, "domain_query", FakeDomain(fail))
+        r = tr.registry_coverage()  # must not raise
+        cal = r["calibers"]
+        assert cal["registered_total"] is None
+        assert cal["verified_total"] is None
+        assert cal["servable_total"] is None
+        assert "note" in cal and "unavailable" in cal["note"]
+        assert "note" in r  # the pre-existing envelope note stays
+
+    def test_servable_query_failure_degrades_only_servable(self, monkeypatch):
+        fail = {"status": "domain_unavailable", "detail": "OperationalError"}
+        fake = SqlDispatchFake([
+            (self._GROUP_BY, _first_batch()),
+            (self._SERVABLE_NEEDLE, fail),
+        ])
+        monkeypatch.setattr(tr, "domain_query", fake)
+        r = tr.registry_coverage()  # must not raise
+        cal = r["calibers"]
+        assert cal["registered_total"] == 57553
+        assert cal["verified_total"] == 3420
+        assert cal["servable_total"] is None
+        assert "不可知" in cal["notes"]["servable_total"]
+        assert "note" not in r  # envelope still counts as live
+
+    def test_strip_keeps_calibers(self, monkeypatch):
+        from fd_find_data_business_mcp import server
+
+        self._fake(monkeypatch, [{"servable_total": 3626}])
+        payload = tr.registry_coverage()
+        stripped = server._strip(payload)
+        assert stripped["calibers"] == payload["calibers"]
 
 
 class TestServerRegistration:
