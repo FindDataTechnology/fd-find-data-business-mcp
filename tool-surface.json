@@ -1,0 +1,123 @@
+{
+  "schema": "mcp-tool-surface/v1",
+  "server": "fd-find-data-business-mcp",
+  "entry_path": "/fd-find-data-business-mcp",
+  "product_line": "wire",
+  "hosting": ["shared-instance"],
+  "description": "柏讯数据联邦 MCP：核心读取（指标点值/序列/语义检索/图谱）+ 九源域联邦（年鉴/法规/法律语料/指导案例/裁判文书/企查/世行/ GTA/城市）+ DAAS 域。只读服务。",
+  "skills_eligible_for_packs": [
+    "civil-nine-step-workflow",
+    "labor-arbitration-workflow",
+    "labor-compensation-calculator",
+    "personal-injury-calculator",
+    "criminal-defense-workflow",
+    "criminal-plea-and-nonprosecution",
+    "criminal-trial-examination-outline",
+    "contract-review-cn",
+    "statute-validity-check",
+    "case-retrieval-report",
+    "legal-concept-map",
+    "litigation-drafting",
+    "evidence-card-organizer"
+  ],
+  "tool_groups": [
+    {
+      "group": "core",
+      "level": "commercial",
+      "tools": [
+        "read",
+        "read_range",
+        "list_concepts",
+        "ai_search",
+        "graph_search",
+        "registry_coverage"
+      ],
+      "notes": "federated read 只认 verified AND (semantic_code|native_code) 的注册条目（federation.py resolve_registry_entry）——yearbook 系指标几乎全部 verified=false，走本组 read 取不到，消费侧必须改走 yearbook_read 域工具。"
+    },
+    {
+      "group": "yearbook",
+      "level": "commercial",
+      "tools": [
+        "yearbook_search_indicators",
+        "yearbook_read"
+      ],
+      "notes": "统计年鉴域。法律预设双计算器的基数通道：39709（城镇居民人均可支配收入，31 省 2017-2024）、39711（农村居民人均可支配收入）。省级社平工资分省分年在册缺失（见 finddata docs/legal-presets/INDICATOR-CODES.md）。"
+    },
+    {
+      "group": "law",
+      "level": "commercial",
+      "tools": [
+        "law_search",
+        "law_read"
+      ],
+      "notes": "法规域。返回效力状态（有效/失效）——对外口径：效力状态以本组为准；fd-legal-search-mcp 语义检索 payload 的 law_status 为快照字段。"
+    },
+    {
+      "group": "legal_docs",
+      "level": "commercial",
+      "tools": [
+        "legal_docs_search",
+        "legal_docs_read"
+      ],
+      "notes": "五源法律语料（29,958 篇）——本仓侧已接线（fd-legal-search-mcp 侧同名工具为骨架态 not_wired 7.1，两处状态不同步属已知，各自 manifest 各自如实声明）。"
+    },
+    {
+      "group": "guide_cases",
+      "level": "commercial",
+      "tools": [
+        "guide_cases_search",
+        "guide_cases_read"
+      ]
+    },
+    {
+      "group": "wenshu",
+      "level": "commercial",
+      "tools": [
+        "wenshu_search",
+        "wenshu_read"
+      ],
+      "notes": "标题匹配检索；消费侧技能必须内置多组关键词换搜与局限标注。"
+    },
+    {
+      "group": "ia35",
+      "level": "commercial",
+      "tools": ["ia35_company_search", "ia35_reg_counts_read"]
+    },
+    {
+      "group": "wb",
+      "level": "commercial",
+      "tools": ["wb_search_indicators", "wb_read"]
+    },
+    {
+      "group": "gta",
+      "level": "commercial",
+      "tools": ["gta_search_variables", "gta_read"]
+    },
+    {
+      "group": "city",
+      "level": "commercial",
+      "tools": ["city_search_variables", "city_read"],
+      "notes": "城市域。city_read('v058')（城镇非私营单位在岗职工平均工资）为市级 296 城 2000-2021，唯一 verified 社平工资——省级缺口的替代参考，消费侧不得跨级顶替省级口径。"
+    },
+    {
+      "group": "daas",
+      "level": "commercial",
+      "tools": [
+        "daas_list_sources",
+        "daas_search_functions",
+        "daas_get_function_detail",
+        "daas_list_indicators",
+        "daas_get_indicator",
+        "daas_list_rules",
+        "daas_search_entities",
+        "daas_get_entity"
+      ],
+      "notes": "DAAS 供给域（facet-mcp-foundation-v1 加入，服务谦面工作区）。"
+    }
+  ],
+  "registry": {
+    "entry_path": "/fd-find-data-business-mcp",
+    "upstream": "http://guangzhou-zihan.mesh.finddata.cn:30803/mcp",
+    "expected_tool_count": 32
+  }
+}
