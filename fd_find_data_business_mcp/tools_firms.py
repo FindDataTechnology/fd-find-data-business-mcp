@@ -85,6 +85,16 @@ _TRUE_YEAR_CEILING = 2027
 _SNAPSHOT_ENV = "FDBIZ_IA35_SNAPSHOT_YEAR"
 _DEFAULT_SNAPSHOT_YEAR = "2023"
 
+#: Disclosed alongside every batch-scoped answer: ia35 is a yearly static
+#: snapshot corpus, so no answer describes live registry state.
+_SNAPSHOT_CALIBER = (
+    "历史批次快照，非实时登记状态；批次年份见 snapshot_year/batch_year"
+)
+
+#: reg_counts carries four industry granularities; 门类 is the coarsest
+#: (single letter) and the only one the original API exposed.
+_INDUSTRY_LEVELS = frozenset({"门类", "大类", "中类", "小类"})
+
 #: Snapshot batch name-paths serve — the module constant the search SQL is
 #: pinned to. Resolved once from ``FDBIZ_IA35_SNAPSHOT_YEAR`` (read-once
 #: cache); operators advance it when a new yearly batch is loaded.
@@ -100,12 +110,37 @@ def snapshot_year() -> str:
         ).strip() or _DEFAULT_SNAPSHOT_YEAR
     return _SNAPSHOT_YEAR
 
+#: Two decode registries coexist in ia35 and are NOT interchangeable:
+#:
+#: - ``strl_texts`` (UNIQUE(数据源, 列, ref_key)) — batch-scoped字典 for the
+#:   three long-text columns: 经营范围 / 注册地址 / 曾用名. A ref resolves
+#:   only against ITS OWN batch's 数据源, so these joins carry the batch.
+#: - ``firm_dict`` (PK(列, id), UNIQUE(列, txt)) — global字典 for the short
+#:   enum-ish columns: 企业类型 / 经营状态 / 登记机关 / 营业期限. No batch
+#:   dimension: an id means the same text in every snapshot.
+#:
+#: 2026-10-12 live schema probe: firms_full has NO 企业类型 / 经营状态 /
+#: 登记机关 text columns — only their ``*引用`` integer counterparts
+#: (alongside 营业期限引用). Selecting the text names is a ProgrammingError;
+#: the pre-fix tool did exactly that and could never serve a row. The enum
+#: refs below resolve through firm_dict; long text stays on strl_texts.
+#: 曾用名 also has a real text column (f."曾用名") — the strl_texts arm
+#: remains the richer decode and keeps winning via COALESCE.
+
 #: strl_texts decode arms: alias -> (列 literal, firms_full ref column).
 #: The 列 literals are the live-confirmed DISTINCT vocabulary, verbatim.
 _DECODE_JOINS = (
     ("scope", "经营范围", "经营范围引用"),
     ("addr", "注册地址", "注册地址引用"),
     ("former", "曾用名", "曾用名引用"),
+)
+
+#: firm_dict decode arms: alias -> (列 literal, firms_full ref column).
+#: Batch-independent — no 数据源 predicate in the join.
+_DICT_JOINS = (
+    ("ctype", "企业类型", "企业类型引用"),
+    ("cstatus", "经营状态", "经营状态引用"),
+    ("cregistrar", "登记机关", "登记机关引用"),
 )
 
 #: Whitelist: hits carry only these fields — decoded dictionary text, never
@@ -127,11 +162,12 @@ _FIRM_SELECT = (
     '       COALESCE(NULLIF(f."法定代表人", \'\'), NULLIF(f."法人代表", \'\')) AS legal_rep,\n'
     '       f."注册资本" AS reg_capital, f."实缴资本" AS paid_capital,\n'
     '       f."成立日期" AS est_date_raw, f."成立年份" AS est_year,\n'
-    '       f."经营状态" AS status, f."企业类型" AS company_type,\n'
-    '       f."登记机关" AS registrar,\n'
+    '       cstatus.txt AS status, ctype.txt AS company_type,\n'
+    '       cregistrar.txt AS registrar,\n'
     '       f."省份" AS province, f."城市" AS city, f."区县" AS county,\n'
     '       addr.txt AS address, scope.txt AS business_scope,\n'
-    '       former.txt AS former_names, f."标签" AS tags,\n'
+    '       COALESCE(former.txt, NULLIF(f."曾用名", \'\')) AS former_names,\n'
+    '       f."标签" AS tags,\n'
     '       f."数据源" AS batch_year\n'
     'FROM firms_full f\n'
 )
@@ -142,6 +178,16 @@ _DECODE_JOIN_SQL = "\n".join(
     f' AND {alias}.ref_key = f."{ref}"'
     for alias, col, ref in _DECODE_JOINS
 )
+
+_DICT_JOIN_SQL = "\n".join(
+    f'LEFT JOIN firm_dict {alias} ON {alias}."列" = \'{col}\''
+    f' AND {alias}.id = f."{ref}"'
+    for alias, col, ref in _DICT_JOINS
+)
+
+#: Both decode layers ride every firm query; a missing dictionary entry
+#: surfaces as null, never as a raw ref and never as a guess.
+_ALL_JOIN_SQL = _DECODE_JOIN_SQL + "\n" + _DICT_JOIN_SQL
 
 
 def _escape_like(q: str) -> str:
@@ -198,7 +244,7 @@ def _result(row: dict[str, Any]) -> dict[str, Any]:
 
 def ia35_company_search(
     name_prefix: str | None = None, credit_code: str | None = None,
-    limit: int = 20,
+    limit: int = 20, company_type: str | None = None,
 ) -> dict[str, Any]:
     """Search the business registry: exact credit-code lookup or name prefix.
 
@@ -213,9 +259,19 @@ def ia35_company_search(
       snapshot batch (``snapshot_year()``, default 2023), deduped in
       Python by credit code (blank-code rows by (企业名称, 登记机关)).
 
+    ``company_type`` (optional) filters on the DECODED 企业类型 text
+    (firm_dict dictionary, e.g. "个体工商户"), so callers can isolate a
+    registration form — individual businesses are roughly half the corpus
+    and are the intended target of the micro-business preset line. It
+    applies to both paths. The response echoes it back as ``company_type``
+    so an empty result is attributable to the filter rather than to a
+    silent miss.
+
     Batch-window disclosure: 名称搜索服务最新快照批次（默认 2023），批次外
     企业仅支持信用代码精确查；ia35 为静态快照，新年份批次载入后需同步
-    _SNAPSHOT_YEAR 与企业名称部分索引。 At most 200 rows (default 20 —
+    _SNAPSHOT_YEAR 与企业名称部分索引。**该批次是历史快照，不是实时登记
+    状态**——响应以 ``snapshot_year`` + ``snapshot_caliber`` 明示，调用方
+    不得将其呈现为当前登记状态。 At most 200 rows (default 20 —
     registry rows are wide). est_date is a YYYYMMDD string or null;
     reg_capital/paid_capital are numeric or null; decodes (address,
     business_scope, former_names) are null where the dictionary has no
@@ -233,24 +289,34 @@ def ia35_company_search(
     if not cc and not np:
         return {"status": "invalid_params", "brand": _BRAND}
     limit = min(max(int(limit), 1), _MAX_SEARCH_LIMIT)
+    ctype = (company_type or "").strip() or None
+    # Predicate on the decoded text, not the ref int: the dictionary is the
+    # only place the human-readable type lives, and filtering on it keeps
+    # the filter and the projected field provably the same value.
+    type_sql = ' AND ctype.txt = :ctype' if ctype is not None else ""
+    type_params = {"ctype": ctype} if ctype is not None else {}
+    echo_type = {"company_type": ctype} if ctype is not None else {}
     if cc:
         # All batches for this code, newest first — Python takes row 0.
         # Deliberately no LIMIT 1: see module docstring for the EXPLAIN
         # rationale (batch rows ≤ number of yearly snapshots, trivial).
         sql = (
-            _FIRM_SELECT + _DECODE_JOIN_SQL + "\n"
-            'WHERE f."统一社会信用代码" = :code\n'
+            _FIRM_SELECT + _ALL_JOIN_SQL + "\n"
+            'WHERE f."统一社会信用代码" = :code' + type_sql + "\n"
             'ORDER BY f."数据源" DESC, f."核准日期" DESC NULLS LAST'
         )
-        rows = query(_DB, sql, {"code": cc})
+        rows = query(_DB, sql, {"code": cc, **type_params})
         if isinstance(rows, dict):
             return rows
         out: dict[str, Any] = {
             "results": [_result(rows[0])] if rows else [],
             "count": 1 if rows else 0,
             "truncated": False,
+            "snapshot_year": snapshot_year(),
+            "snapshot_caliber": _SNAPSHOT_CALIBER,
             "brand": _BRAND,
         }
+        out.update(echo_type)
         if np:
             out["note"] = "已按统一社会信用代码精确查询，忽略 name_prefix 参数。"
         return out
@@ -262,11 +328,12 @@ def ia35_company_search(
         "lim": limit + 1,
     }
     sql = (
-        _FIRM_SELECT + _DECODE_JOIN_SQL + "\n"
-        'WHERE f."数据源" = :snapshot AND f."企业名称" LIKE :prefix\n'
+        _FIRM_SELECT + _ALL_JOIN_SQL + "\n"
+        'WHERE f."数据源" = :snapshot AND f."企业名称" LIKE :prefix'
+        + type_sql + "\n"
         'ORDER BY f."企业名称"\nLIMIT :lim'
     )
-    rows = query(_DB, sql, params)
+    rows = query(_DB, sql, {**params, **type_params})
     if isinstance(rows, dict):
         return rows
     # Dedup inside the snapshot batch: code first, else (name, registrar).
@@ -285,6 +352,8 @@ def ia35_company_search(
         "count": min(len(deduped), limit),
         "truncated": truncated,
         "snapshot_year": params["snapshot"],
+        "snapshot_caliber": _SNAPSHOT_CALIBER,
+        **echo_type,
         "brand": _BRAND,
     }
 
@@ -292,7 +361,8 @@ def ia35_company_search(
 def ia35_reg_counts_read(
     start_year: int | None = None, end_year: int | None = None,
     province: str | None = None, industry: str | None = None,
-    limit: int = 500,
+    limit: int = 500, city: str | None = None, county: str | None = None,
+    industry_class: str | None = None, industry_level: str = "门类",
 ) -> dict[str, Any]:
     """Read 新增注册企业数量 aggregates from reg_counts (one row per bucket).
 
@@ -308,6 +378,24 @@ def ia35_reg_counts_read(
     ``{results: [{year, province, city, county, industry, industry_code,
     new_firms, brand}], count, truncated, note?}``.
 
+    Finer geography and industry (added 2026-10-12 for the micro-business
+    line — "这条街这个行业开了几家"): ``city`` / ``county`` equality, and
+    ``industry_class`` matched at the level named by ``industry_level``
+    (one of 门类 / 大类 / 中类 / 小类, default 门类) against that level's
+    代码 OR 名称 — e.g. industry_level="小类" with "快餐服务" or "H6220".
+    The four industry levels and 省份/城市/区县 all exist in the table; only
+    some are index-backed.
+
+    **Query guard**: only ``province`` and ``成立年份`` carry indexes
+    (idx_reg_counts_prov_year, idx_reg_counts_year). Filtering by city /
+    county / industry alone forces a full 12.4M-row scan (measured 10.9s
+    cold, near the 15s federated timeout), so ``city`` or ``county``
+    REQUIRES ``province`` — the tool returns ``invalid_params`` rather than
+    serving a query that predictably times out. Measured plans:
+    province+year+county+小类 ≈ 3.8s (index scan, safe). A composite index
+    on (省份, 城市, 区县, 行业小类代码) would remove the restriction and is
+    operator-side work (fdbiz_ro cannot CREATE INDEX).
+
     Plan note (EXPLAIN 2026-09-29): the raw-column branch
     ``(成立年份 <= 2027 AND 成立年份 BETWEEN …) OR (成立年份 > 2027)``
     keeps province+year filters on the idx_reg_counts_prov_year bitmap;
@@ -322,15 +410,50 @@ def ia35_reg_counts_read(
     y2 = int(end_year) if end_year is not None else None
     prov = (province or "").strip() or None
     ind = (industry or "").strip() or None
+    ct = (city or "").strip() or None
+    co = (county or "").strip() or None
+    iclass = (industry_class or "").strip() or None
+    # Only 省份/成立年份 are indexed; without a province anchor a city or
+    # county filter degenerates into a 12.4M-row scan that likely exceeds
+    # the federated timeout — refuse rather than serve a predictably-dead
+    # query (see docstring for measured plans).
+    if (ct is not None or co is not None) and prov is None:
+        return {
+            "status": "invalid_params",
+            "detail": "city/county 过滤必须同时提供 province（无省份锚点会全表扫描并超时）",
+            "brand": _BRAND,
+        }
+    if iclass is not None:
+        lvl = (industry_level or "门类").strip()
+        if lvl not in _INDUSTRY_LEVELS:
+            return {
+                "status": "invalid_params",
+                "detail": (
+                    f"industry_level 必须是 {sorted(_INDUSTRY_LEVELS)} 之一，"
+                    f"收到 {lvl!r}"
+                ),
+                "brand": _BRAND,
+            }
 
     params: dict[str, Any] = {"lim": limit + 1}
     where = ""
     if prov is not None:
         params["province"] = prov
         where += ' AND "省份" = :province'
+    if ct is not None:
+        params["city"] = ct
+        where += ' AND "城市" = :city'
+    if co is not None:
+        params["county"] = co
+        where += ' AND "区县" = :county'
     if ind is not None:
         params["industry"] = ind
         where += ' AND ("行业门类代码" = :industry OR "行业门类" = :industry)'
+    if iclass is not None:
+        params["iclass"] = iclass
+        where += (
+            f' AND ("行业{lvl}代码" = :iclass OR "行业{lvl}" = :iclass)'
+        )
     raw_bounds = ""
     if y1 is not None:
         params["y1"] = y1
@@ -384,6 +507,8 @@ def ia35_reg_counts_read(
     if isinstance(rows, dict):
         return rows
     truncated = len(rows) > limit
+    years = [int(r["year"]) for r in rows[:limit]
+             if r.get("year") is not None]
     out: dict[str, Any] = {
         "results": [
             {**{k: r.get(k) for k in _REGCOUNT_FIELDS}, "brand": _BRAND}
@@ -391,6 +516,10 @@ def ia35_reg_counts_read(
         ],
         "count": min(len(rows), limit),
         "truncated": truncated,
+        # Disclosed, not inferred: reg_counts has no batch column, so the
+        # newest year actually served is the honest freshness statement.
+        "latest_year_available": max(years) if years else None,
+        "snapshot_caliber": _SNAPSHOT_CALIBER,
         "brand": _BRAND,
     }
     bad = max((int(r.get("bad_total") or 0) for r in rows), default=0)

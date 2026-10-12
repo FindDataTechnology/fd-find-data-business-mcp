@@ -132,8 +132,12 @@ class TestCompanySearchParams:
     def test_credit_path_unknown_code_empty_envelope(self, monkeypatch):
         monkeypatch.setattr(tf, "query", _fake_query([]))
         out = tf.ia35_company_search(credit_code="000000000000000000")
-        assert out == {"results": [], "count": 0, "truncated": False,
-                       "brand": "finddata"}
+        assert out == {
+            "results": [], "count": 0, "truncated": False,
+            "snapshot_year": "2023",
+            "snapshot_caliber": tf._SNAPSHOT_CALIBER,
+            "brand": "finddata",
+        }
 
     def test_name_path_pinned_to_snapshot_year(self, monkeypatch):
         calls = []
@@ -407,3 +411,177 @@ class TestRegCountsLive:
         for r in out["results"]:
             assert set(r) == _REGCOUNT_KEYS
             assert not (_FORBIDDEN & set(r))
+
+
+class TestCompanySearchDecode:
+    """2026-10-12: firms_full has NO 企业类型/经营状态/登记机关 text columns.
+
+    The pre-fix tool selected those names and could never serve a row. The
+    enum-ish columns are ``*引用`` integers decoded through firm_dict —
+    these tests pin that decode so the defect cannot silently return.
+    """
+
+    def test_enum_columns_decode_through_firm_dict(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(tf, "query", _fake_query([], calls))
+        tf.ia35_company_search(name_prefix="泰兴")
+        sql = calls[0]["sql"]
+        # The three broken text-column references must be gone.
+        for dead in ('f."企业类型"', 'f."经营状态"', 'f."登记机关"'):
+            assert dead not in sql
+        # ...and replaced by firm_dict joins on the *引用 int columns.
+        for alias, col, ref in tf._DICT_JOINS:
+            assert f'LEFT JOIN firm_dict {alias}' in sql
+            assert f'{alias}."列" = \'{col}\'' in sql
+            assert f'{alias}.id = f."{ref}"' in sql
+        # Long-text decodes stay on the batch-scoped strl_texts registry.
+        for alias, col, ref in tf._DECODE_JOINS:
+            assert f'LEFT JOIN strl_texts {alias}' in sql
+
+    def test_no_batch_predicate_on_firm_dict_joins(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(tf, "query", _fake_query([], calls))
+        tf.ia35_company_search(credit_code="91361102MACR6J3C5A")
+        sql = calls[0]["sql"]
+        # firm_dict is global — no 数据源 predicate, unlike strl_texts.
+        for alias in ("ctype", "cstatus", "cregistrar"):
+            line = next(l for l in sql.splitlines()
+                        if f"LEFT JOIN firm_dict {alias}" in l)
+            assert "数据源" not in line
+
+    def test_company_type_filter_predicates_decoded_text(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(tf, "query", _fake_query([], calls))
+        out = tf.ia35_company_search(name_prefix="泰兴", company_type="个体工商户")
+        sql, params = calls[0]["sql"], calls[0]["params"]
+        # Filter on the decoded text, never the raw integer ref.
+        assert 'ctype.txt = :ctype' in sql
+        assert params["ctype"] == "个体工商户"
+        assert out["company_type"] == "个体工商户"
+
+    def test_company_type_filter_applies_to_credit_path(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(tf, "query", _fake_query([], calls))
+        out = tf.ia35_company_search(credit_code="X", company_type="个体工商户")
+        assert 'ctype.txt = :ctype' in calls[0]["sql"]
+        assert out["company_type"] == "个体工商户"
+
+    def test_company_type_not_echoed_when_absent(self, monkeypatch):
+        monkeypatch.setattr(tf, "query", _fake_query([]))
+        out = tf.ia35_company_search(name_prefix="泰兴")
+        assert "company_type" not in out
+
+    def test_decoded_status_and_registrar_reach_the_payload(self, monkeypatch):
+        row = _firm_row()
+        row.pop("company_type", None)
+        row.pop("status", None)
+        row.pop("registrar", None)
+        # Simulate what the fixed SELECT returns: decoded dictionary text.
+        row["company_type"] = "个体工商户"
+        row["status"] = "存续"
+        row["registrar"] = "泰州市市场监督管理局"
+        monkeypatch.setattr(tf, "query", _fake_query([row]))
+        out = tf.ia35_company_search(name_prefix="泰兴")
+        hit = out["results"][0]
+        assert hit["company_type"] == "个体工商户"
+        assert hit["status"] == "存续"
+        assert hit["registrar"] == "泰州市市场监督管理局"
+
+    def test_missing_dictionary_entry_surfaces_as_null(self, monkeypatch):
+        row = _firm_row()
+        row["company_type"] = None
+        monkeypatch.setattr(tf, "query", _fake_query([row]))
+        out = tf.ia35_company_search(name_prefix="泰兴")
+        # A LEFT JOIN miss is null — never a raw ref int, never a guess.
+        assert out["results"][0]["company_type"] is None
+
+
+class TestSnapshotCaliberDisclosure:
+    """The corpus is a yearly batch snapshot, not live registry state."""
+
+    def test_search_responses_carry_caliber(self, monkeypatch):
+        monkeypatch.setattr(tf, "query", _fake_query([]))
+        out = tf.ia35_company_search(name_prefix="泰兴")
+        assert out["snapshot_year"] == "2023"
+        assert "非实时" in out["snapshot_caliber"]
+
+    def test_regcounts_responses_carry_latest_year(self, monkeypatch):
+        monkeypatch.setattr(tf, "query", _fake_query(
+            [{"year": 2021, "bad_total": 0}, {"year": 2023, "bad_total": 0}]))
+        out = tf.ia35_reg_counts_read(province="河南省")
+        assert out["latest_year_available"] == 2023
+        assert "非实时" in out["snapshot_caliber"]
+
+    def test_regcounts_latest_year_null_on_empty(self, monkeypatch):
+        monkeypatch.setattr(tf, "query", _fake_query([]))
+        out = tf.ia35_reg_counts_read(province="河南省")
+        assert out["latest_year_available"] is None
+
+
+class TestRegCountsGranularity:
+    """2026-10-12: expose city/county and the four industry levels."""
+
+    def test_city_filter_hits_sql(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(tf, "query", _fake_query([], calls))
+        tf.ia35_reg_counts_read(province="广东省", city="广州市")
+        sql, params = calls[0]["sql"], calls[0]["params"]
+        assert '"城市" = :city' in sql
+        assert params["city"] == "广州市"
+
+    def test_county_filter_hits_sql(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(tf, "query", _fake_query([], calls))
+        tf.ia35_reg_counts_read(province="广东省", county="天河区")
+        sql, params = calls[0]["sql"], calls[0]["params"]
+        assert '"区县" = :county' in sql
+        assert params["county"] == "天河区"
+
+    def test_industry_class_defaults_to_section_level(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(tf, "query", _fake_query([], calls))
+        tf.ia35_reg_counts_read(province="广东省", industry_class="H")
+        sql = calls[0]["sql"]
+        assert '"行业门类代码" = :iclass OR "行业门类" = :iclass' in sql
+
+    def test_industry_class_at_small_class_level(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(tf, "query", _fake_query([], calls))
+        tf.ia35_reg_counts_read(province="广东省", industry_class="快餐服务",
+                                industry_level="小类")
+        sql, params = calls[0]["sql"], calls[0]["params"]
+        assert '"行业小类代码" = :iclass OR "行业小类" = :iclass' in sql
+        assert params["iclass"] == "快餐服务"
+
+    def test_unknown_industry_level_rejected(self, monkeypatch):
+        monkeypatch.setattr(tf, "query", _fake_query([]))
+        out = tf.ia35_reg_counts_read(province="广东省", industry_class="H",
+                                      industry_level="细类")
+        assert out["status"] == "invalid_params"
+        assert "industry_level" in out["detail"]
+
+    def test_city_without_province_rejected(self, monkeypatch):
+        """Only 省份 is indexed; a bare city filter would scan 12.4M rows."""
+        monkeypatch.setattr(tf, "query", _fake_query([]))
+        out = tf.ia35_reg_counts_read(city="广州市")
+        assert out["status"] == "invalid_params"
+        assert "province" in out["detail"]
+
+    def test_county_without_province_rejected(self, monkeypatch):
+        monkeypatch.setattr(tf, "query", _fake_query([]))
+        out = tf.ia35_reg_counts_read(county="天河区")
+        assert out["status"] == "invalid_params"
+
+    def test_legacy_call_shape_unchanged(self, monkeypatch):
+        """Province+industry-only callers must see the same SQL shape."""
+        calls = []
+        monkeypatch.setattr(tf, "query", _fake_query([], calls))
+        tf.ia35_reg_counts_read(province=" 河南省 ", industry="A")
+        sql, params = calls[0]["sql"], calls[0]["params"]
+        assert params["province"] == "河南省"
+        assert '"省份" = :province' in sql
+        assert '("行业门类代码" = :industry OR "行业门类" = :industry)' in sql
+        # No new predicates leak in when the new params are absent.
+        assert '"城市" = :city' not in sql
+        assert '"区县" = :county' not in sql
+        assert ":iclass" not in sql

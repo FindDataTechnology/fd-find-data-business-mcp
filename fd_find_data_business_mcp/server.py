@@ -659,6 +659,7 @@ def ia35_company_search(
     credit_code: str | None = None,
     limit: int = 20,
     scope: str | None = None,
+    company_type: str | None = None,
 ) -> dict:
     """Search China business-registry firm profiles by name prefix or exact credit code.
 
@@ -672,10 +673,15 @@ def ia35_company_search(
     Returns {results: [{credit_code, name, legal_rep, reg_capital,
     paid_capital, est_date, est_year, status, company_type, registrar,
     province, city, county, address, business_scope, former_names, tags,
-    batch_year, brand}], count, truncated, snapshot_year?}. ``scope``: named
-    retrieval scope — unknown scope errors explicitly; a scope excluding the
-    ia35 source returns an explainable empty result; a scoped response names
-    the scope in effect.
+    batch_year, brand}], count, truncated, snapshot_year?,
+    snapshot_caliber?}. ``company_type`` filters on the decoded 企业类型
+    text (e.g. "个体工商户" — roughly half the corpus) and is echoed back so
+    an empty result is attributable to the filter. The corpus is a yearly
+    batch snapshot, NOT live registry state: responses carry
+    ``snapshot_year`` / ``snapshot_caliber`` and MUST NOT be presented as
+    current registration status. ``scope``: named retrieval scope — unknown
+    scope errors explicitly; a scope excluding the ia35 source returns an
+    explainable empty result; a scoped response names the scope in effect.
     """
     from fd_find_data_business_mcp.tools_firms import (
         ia35_company_search as _impl)
@@ -683,7 +689,7 @@ def ia35_company_search(
     meta, gate = _scope_gate(scope, "ia35")
     if gate is not None:
         return gate
-    out = _strip(_impl(name_prefix, credit_code, limit))
+    out = _strip(_impl(name_prefix, credit_code, limit, company_type))
     if meta:
         out["scope"] = meta
         _scope_record(meta, out.get("count", 0))
@@ -697,8 +703,12 @@ def ia35_reg_counts_read(
     province: str | None = None,
     industry: str | None = None,
     limit: int = 500,
+    city: str | None = None,
+    county: str | None = None,
+    industry_class: str | None = None,
+    industry_level: str = "门类",
 ) -> dict:
-    """Read new-firm registration counts by year range, province, industry.
+    """Read new-firm registration counts by year, region, and industry level.
 
     Serves the reg_counts aggregate (founded-year x region x industry
     section -> new firm count). Source years mix true years with
@@ -706,16 +716,31 @@ def ia35_reg_counts_read(
     (e.g. 32741 -> 1989) and unconvertible rows are dropped with the count
     disclosed in the response note — a five-digit pseudo-year is never
     returned. Cells with no aggregate row are absent, never zero-filled.
-    Province+year filters use the (province, year) index; province-only
-    queries may exceed the query budget. Returns {results: [{year,
-    province, city, county, industry, industry_code, new_firms, brand}],
-    count, truncated, rows_returned, note?}. ``rows_returned`` = aggregate
-    observation rows served (equal to count).
+    Province+year filters use the (province, year) index.
+
+    ``city`` / ``county`` narrow the region and REQUIRE ``province``
+    (without it the query degenerates into a 12.4M-row scan that exceeds
+    the federated timeout — the tool returns invalid_params instead).
+    ``industry_class`` matches at the level named by ``industry_level``
+    (门类/大类/中类/小类, default 门类) against that level's code or name,
+    e.g. industry_level="小类" with "快餐服务" or "H6220".
+
+    This aggregate counts NEW REGISTRATIONS only — there is no closure,
+    deregistration, or revocation series in this source, so it MUST NOT be
+    used to answer "how many closed". Responses carry
+    ``latest_year_available`` and ``snapshot_caliber``: the corpus is a
+    year-batch snapshot, not live registry state. Returns {results:
+    [{year, province, city, county, industry, industry_code, new_firms,
+    brand}], count, truncated, rows_returned, latest_year_available?,
+    snapshot_caliber?, note?}. ``rows_returned`` = aggregate observation
+    rows served (equal to count).
     """
     from fd_find_data_business_mcp.tools_firms import (
         ia35_reg_counts_read as _impl)
 
-    return _with_rows_returned(_strip(_impl(start_year, end_year, province, industry, limit)))
+    return _with_rows_returned(_strip(_impl(
+        start_year, end_year, province, industry, limit,
+        city, county, industry_class, industry_level)))
 
 
 @mcp.tool
