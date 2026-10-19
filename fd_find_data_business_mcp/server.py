@@ -14,6 +14,8 @@ from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 
 from fd_open_data_mcp.db import get_database
 
+from fd_find_data_business_mcp.annotations import annotations_for
+
 # --- Auth: Logto JWT, env-gated ---------------------------------------------
 # Unset FDBIZ_JWKS_URI => no auth (local dev / smoke test). Set in deploy to
 # reject every request without a valid Logto-issued JWT (401 before any tool).
@@ -176,7 +178,7 @@ def _with_rows_returned(out: dict) -> dict:
 
 
 # --- Read: serve crawled cache only (fresh OR stale); provider-independent ----
-@mcp.tool
+@mcp.tool(annotations=annotations_for("read"))
 def read(concept_id: int, entity_type: str, entity_id: int, dates: list[str]) -> list[dict]:
     """Read a FindData indicator for an entity over a list of dates.
 
@@ -213,7 +215,7 @@ def read(concept_id: int, entity_type: str, entity_id: int, dates: list[str]) ->
 
 
 # --- Read range: bulk series, same strip + stale-serve ---------------------
-@mcp.tool
+@mcp.tool(annotations=annotations_for("read_range"))
 def read_range(
     concept_ids: list[int], entity_type: str, entity_id: int,
     start: str, end: str,
@@ -254,7 +256,7 @@ def read_range(
 
 
 # --- Full catalog visibility (provenance-free) ------------------------------
-@mcp.tool
+@mcp.tool(annotations=annotations_for("list_concepts"))
 def list_concepts(entity_type: str | None = None) -> list[dict]:
     """List all available FindData indicators, optionally filtered by entity type."""
     from fd_open_data_mcp.models import Concept
@@ -269,7 +271,7 @@ def list_concepts(entity_type: str | None = None) -> list[dict]:
         s.close()
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("ai_search"))
 def ai_search(
     query: str,
     entity_type: str | None = None,
@@ -288,7 +290,7 @@ def ai_search(
     return _strip(_ai_search(query, entity_type, limit, include_values, value_date))
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("graph_search"))
 def graph_search(
     algorithm: str,
     start_entity_code: str,
@@ -409,7 +411,7 @@ def _scope_record(meta: dict | None, result_count: int) -> None:
         s.close()
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("yearbook_search_indicators"))
 def yearbook_search_indicators(query: str, limit: int = 50,
                                scope: str | None = None) -> dict:
     """Search FindData statistical-yearbook indicators by fuzzy name.
@@ -437,7 +439,7 @@ def yearbook_search_indicators(query: str, limit: int = 50,
     return out
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("yearbook_read"))
 def yearbook_read(
     indicator_id: int,
     region: str | None = None,
@@ -459,7 +461,7 @@ def yearbook_read(
     return _with_rows_returned(_strip(_impl(indicator_id, region, start_year, end_year, limit)))
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("law_search"))
 def law_search(title_query: str, category: str | None = None, limit: int = 50,
                scope: str | None = None) -> dict:
     """Search Chinese laws and regulations by fuzzy title, optionally
@@ -483,7 +485,7 @@ def law_search(title_query: str, category: str | None = None, limit: int = 50,
     return out
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("law_read"))
 def law_read(law_id: int) -> dict:
     """Read one law's full text and metadata by id (from law_search).
 
@@ -495,7 +497,7 @@ def law_read(law_id: int) -> dict:
     return _strip(_impl(law_id))
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("legal_docs_search"))
 def legal_docs_search(
     title_query: str,
     source: str | None = None,
@@ -531,7 +533,7 @@ def legal_docs_search(
     return out
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("legal_docs_read"))
 def legal_docs_read(doc_id: int) -> dict:
     """Read one legal document's full text and metadata by id (from legal_docs_search).
 
@@ -548,7 +550,7 @@ def legal_docs_read(doc_id: int) -> dict:
     return _strip(_impl(doc_id))
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("guide_cases_search"))
 def guide_cases_search(
     title_query: str,
     doc_type: str | None = None,
@@ -583,7 +585,7 @@ def guide_cases_search(
     return out
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("guide_cases_read"))
 def guide_cases_read(case_id: str) -> dict:
     """Read one guiding case or notice by source_id (from guide_cases_search).
 
@@ -599,7 +601,7 @@ def guide_cases_read(case_id: str) -> dict:
     return _strip(_impl(case_id))
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("wenshu_search"))
 def wenshu_search(
     title_query: str,
     doc_type: str | None = None,
@@ -638,7 +640,7 @@ def wenshu_search(
     return out
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("wenshu_read"))
 def wenshu_read(doc_id: str) -> dict:
     """Read one court judgment's decoded metadata and, when captured, full text.
 
@@ -653,7 +655,7 @@ def wenshu_read(doc_id: str) -> dict:
     return _strip(_impl(doc_id))
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("ia35_company_search"))
 def ia35_company_search(
     name_prefix: str | None = None,
     credit_code: str | None = None,
@@ -696,7 +698,7 @@ def ia35_company_search(
     return out
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("ia35_reg_counts_read"))
 def ia35_reg_counts_read(
     start_year: int | None = None,
     end_year: int | None = None,
@@ -743,7 +745,7 @@ def ia35_reg_counts_read(
         city, county, industry_class, industry_level)))
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("wb_search_indicators"))
 def wb_search_indicators(query: str, limit: int = 50,
                          scope: str | None = None) -> dict:
     """Search World Bank (WDI) indicators by fuzzy name, topic, or code.
@@ -771,7 +773,7 @@ def wb_search_indicators(query: str, limit: int = 50,
     return out
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("wb_read"))
 def wb_read(
     indicator_code: str,
     countries: list[str],
@@ -792,7 +794,7 @@ def wb_read(
     return _with_rows_returned(_strip(_impl(indicator_code, countries, start_year, end_year, limit)))
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("gta_search_variables"))
 def gta_search_variables(query: str, limit: int = 50,
                          scope: str | None = None) -> dict:
     """Search GTA listed-company panel variables by fuzzy Chinese label or code.
@@ -821,7 +823,7 @@ def gta_search_variables(query: str, limit: int = 50,
     return out
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("gta_read"))
 def gta_read(
     variable: str,
     start_year: int | None = None,
@@ -842,7 +844,7 @@ def gta_read(
     return _with_rows_returned(_strip(_impl(variable, start_year, end_year, firm_ids, limit)))
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("city_search_variables"))
 def city_search_variables(query: str, limit: int = 50,
                           scope: str | None = None) -> dict:
     """Search China city-panel variables by fuzzy Chinese name or code.
@@ -869,7 +871,7 @@ def city_search_variables(query: str, limit: int = 50,
     return out
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("city_read"))
 def city_read(
     variable: str,
     city: str | None = None,
@@ -898,7 +900,7 @@ def city_read(
 # indicator registry's macro catalogs) and every exposure is bounded by the
 # DAAS tool-surface manifest's commercial set (asserted in tests).
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("daas_list_sources"))
 def daas_list_sources(
     keyword: str | None = None,
     enabled: bool | None = None,
@@ -929,7 +931,7 @@ def daas_list_sources(
     return out
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("daas_search_functions"))
 def daas_search_functions(
     keyword: str,
     category: str | None = None,
@@ -961,7 +963,7 @@ def daas_search_functions(
     return out
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("daas_get_function_detail"))
 def daas_get_function_detail(function_id: int) -> dict:
     """Read one DAAS fetch function's full caliber by id (from search).
 
@@ -976,7 +978,7 @@ def daas_get_function_detail(function_id: int) -> dict:
     return _strip(_impl(function_id))
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("daas_list_indicators"))
 def daas_list_indicators(
     keyword: str | None = None,
     datasource: str | None = None,
@@ -1010,7 +1012,7 @@ def daas_list_indicators(
     return out
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("daas_get_indicator"))
 def daas_get_indicator(indicator_id: int) -> dict:
     """Read one DAAS indicator rule's complete caliber by id (from list).
 
@@ -1024,7 +1026,7 @@ def daas_get_indicator(indicator_id: int) -> dict:
     return _strip(_impl(indicator_id))
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("daas_list_rules"))
 def daas_list_rules(
     rule_type: str | None = None,
     limit: int = 100,
@@ -1053,7 +1055,7 @@ def daas_list_rules(
     return out
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("daas_search_entities"))
 def daas_search_entities(
     keyword: str,
     entity_type: str | None = None,
@@ -1086,7 +1088,7 @@ def daas_search_entities(
     return out
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("daas_get_entity"))
 def daas_get_entity(entity_id: int) -> dict:
     """Read one DAAS entity's detail by id (from search).
 
@@ -1100,7 +1102,7 @@ def daas_get_entity(entity_id: int) -> dict:
     return _strip(_impl(entity_id))
 
 
-@mcp.tool
+@mcp.tool(annotations=annotations_for("registry_coverage"))
 def registry_coverage() -> dict:
     """Indicator-registry coverage per source (registration boundary + calibers).
 
