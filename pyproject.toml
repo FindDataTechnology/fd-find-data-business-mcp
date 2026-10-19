@@ -21,7 +21,7 @@ dependencies = [
     # instead and fail every core tool at startup. Failing the build on a
     # stale version beats shipping that image.
     "fd-open-data-mcp[data,search]>=0.5.21",
-    "fastmcp>=2.0",
+    "fastmcp>=3.4,<4",
     "click",
     "uvicorn",
     # [wenshu]: judgment bodies live in zstd-compressed RustFS blocks —
