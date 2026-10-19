@@ -3,7 +3,9 @@
   "server": "fd-find-data-business-mcp",
   "entry_path": "/fd-find-data-business-mcp",
   "product_line": "wire",
-  "hosting": ["shared-instance"],
+  "hosting": [
+    "shared-instance"
+  ],
   "description": "柏讯数据联邦 MCP：核心读取（指标点值/序列/语义检索/图谱）+ 九源域联邦（年鉴/法规/法律语料/指导案例/裁判文书/企查/世行/ GTA/城市）+ DAAS 域。只读服务。",
   "skills_eligible_for_packs": [
     "civil-nine-step-workflow",
@@ -20,6 +22,13 @@
     "litigation-drafting",
     "evidence-card-organizer"
   ],
+  "naming_convention": {
+    "order": "verb_noun",
+    "applies_to": "new_tools",
+    "note": "新工具一律 `动词_名词`。既有名词序工具**不改名**——改名会破坏已发布 pack 的引用（一个技能文本里点名的工具名消失即整个套件不可用）；它们在本 清单中登记为 historical，改名的唯一正当路径是组 6.5 的兼容期机制。",
+    "historical": "see tool_naming_legacy",
+    "prefix_policy": "跨服务同名工具不得靠前缀区分（前缀是服务标识而非工具语义）；同名消解靠描述里写明部署与数据源差异。"
+  },
   "tool_groups": [
     {
       "group": "core",
@@ -81,22 +90,34 @@
     {
       "group": "ia35",
       "level": "commercial",
-      "tools": ["ia35_company_search", "ia35_reg_counts_read"]
+      "tools": [
+        "ia35_company_search",
+        "ia35_reg_counts_read"
+      ]
     },
     {
       "group": "wb",
       "level": "commercial",
-      "tools": ["wb_search_indicators", "wb_read"]
+      "tools": [
+        "wb_search_indicators",
+        "wb_read"
+      ]
     },
     {
       "group": "gta",
       "level": "commercial",
-      "tools": ["gta_search_variables", "gta_read"]
+      "tools": [
+        "gta_search_variables",
+        "gta_read"
+      ]
     },
     {
       "group": "city",
       "level": "commercial",
-      "tools": ["city_search_variables", "city_read"],
+      "tools": [
+        "city_search_variables",
+        "city_read"
+      ],
       "notes": "城市域。city_read('v058')（城镇非私营单位在岗职工平均工资）为市级 296 城 2000-2021，唯一 verified 社平工资——省级缺口的替代参考，消费侧不得跨级顶替省级口径。"
     },
     {
