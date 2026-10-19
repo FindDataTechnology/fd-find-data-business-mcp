@@ -534,7 +534,7 @@ def legal_docs_search(
 
 
 @mcp.tool(annotations=annotations_for("legal_docs_read"))
-def legal_docs_read(doc_id: int) -> dict:
+def legal_docs_read(doc_id: int, offset: int = 0, max_chars: int = 12000) -> dict:
     """Read one legal document's full text and metadata by id (from legal_docs_search).
 
     Returns metadata + {content_available, content?, brand}. When the body
@@ -547,7 +547,7 @@ def legal_docs_read(doc_id: int) -> dict:
     from fd_find_data_business_mcp.tools_legal_docs import (
         legal_docs_read as _impl)
 
-    return _strip(_impl(doc_id))
+    return _strip(_impl(doc_id, offset=offset, max_chars=max_chars))
 
 
 @mcp.tool(annotations=annotations_for("guide_cases_search"))
@@ -586,7 +586,7 @@ def guide_cases_search(
 
 
 @mcp.tool(annotations=annotations_for("guide_cases_read"))
-def guide_cases_read(case_id: str) -> dict:
+def guide_cases_read(case_id: str, offset: int = 0, max_chars: int = 12000) -> dict:
     """Read one guiding case or notice by source_id (from guide_cases_search).
 
     Returns full metadata + the published structured sections
@@ -598,7 +598,7 @@ def guide_cases_read(case_id: str) -> dict:
     from fd_find_data_business_mcp.tools_guide_cases import (
         guide_cases_read as _impl)
 
-    return _strip(_impl(case_id))
+    return _strip(_impl(case_id, offset=offset, max_chars=max_chars))
 
 
 @mcp.tool(annotations=annotations_for("wenshu_search"))
@@ -641,7 +641,7 @@ def wenshu_search(
 
 
 @mcp.tool(annotations=annotations_for("wenshu_read"))
-def wenshu_read(doc_id: str) -> dict:
+def wenshu_read(doc_id: str, offset: int = 0, max_chars: int = 12000) -> dict:
     """Read one court judgment's decoded metadata and, when captured, full text.
 
     Returns metadata + {body_shape, content_available, content?, brand}.
@@ -652,7 +652,7 @@ def wenshu_read(doc_id: str) -> dict:
     """
     from fd_find_data_business_mcp.tools_wenshu import wenshu_read as _impl
 
-    return _strip(_impl(doc_id))
+    return _strip(_impl(doc_id, offset=offset, max_chars=max_chars))
 
 
 @mcp.tool(annotations=annotations_for("ia35_company_search"))

@@ -26,6 +26,7 @@ from __future__ import annotations
 from typing import Any
 
 from fd_find_data_business_mcp import wenshu_body
+from fd_find_data_business_mcp import limits
 from fd_find_data_business_mcp.domain import query
 
 _BRAND = "finddata"
@@ -39,7 +40,8 @@ _FORBIDDEN_KEYS = frozenset({
     "文书类型引用", "审理程序引用", "案例级别引用", "法院级别引用", "法条引用",
 })
 
-_MAX_LIMIT = 200
+# 上限的唯一真源在 limits.py（mcp-result-contract）
+_MAX_LIMIT = limits.MAX_LIST_ITEMS
 
 #: Whitelist: search hits carry only these row fields — decoded dictionary
 #: text, never the raw refs, never the block coordinates.
@@ -189,7 +191,11 @@ def wenshu_search(
     }
 
 
-def wenshu_read(doc_id: str) -> dict[str, Any]:
+def wenshu_read(
+    doc_id: str,
+    offset: int = 0,
+    max_chars: int = limits.DEFAULT_BODY_CHARS,
+) -> dict[str, Any]:
     """Read one judgment by doc_id: full metadata plus the body when servable.
 
     Metadata mirrors the search whitelist plus 判决时间/受理时间 (as
@@ -244,5 +250,13 @@ def wenshu_read(doc_id: str) -> dict[str, Any]:
             out["note"] = _BODY_UNAVAILABLE_NOTE
         else:
             out["content_available"] = True
-            out["content"] = content
+            start_at = max(0, int(offset))
+            if start_at >= len(content) and content:
+                return {"status": "not_found", "brand": _BRAND,
+                        "note": f"offset {start_at} 超出正文长度 {len(content)}；"
+                                "用 total_chars 内的偏移重试。"}
+            chunk, _end, _more = limits.slice_window(content, start_at, max_chars)
+            out["content"] = chunk
+            out.update(limits.truncation_fields(
+                total=len(content), offset=start_at, returned=len(chunk)))
     return {k: v for k, v in out.items() if k not in _FORBIDDEN_KEYS}

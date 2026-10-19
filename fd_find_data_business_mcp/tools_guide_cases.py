@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from fd_find_data_business_mcp import limits
 from fd_find_data_business_mcp.domain import query
 
 _BRAND = "finddata"
@@ -21,7 +22,8 @@ _BRAND = "finddata"
 #: Crawler bookkeeping columns — provenance isolation: never in a response.
 _FORBIDDEN_KEYS = frozenset({"content_hash", "fetched_at"})
 
-_MAX_LIMIT = 200
+# 上限的唯一真源在 limits.py（mcp-result-contract）
+_MAX_LIMIT = limits.MAX_LIST_ITEMS
 
 _DOC_TYPES = frozenset({"case", "notice"})
 
@@ -138,7 +140,11 @@ def guide_cases_search(
     }
 
 
-def guide_cases_read(case_id: str) -> dict[str, Any]:
+def guide_cases_read(
+    case_id: str,
+    offset: int = 0,
+    max_chars: int = limits.DEFAULT_BODY_CHARS,
+) -> dict[str, Any]:
     """Read one FindData guiding case (or issue notice) by source_id.
 
     Returns full metadata (incl. source_url), the six sub-sections — a
@@ -170,7 +176,16 @@ def guide_cases_read(case_id: str) -> dict[str, Any]:
         val = row.get(key)
         if val:
             out[key] = val
-    out["body"] = row.get("body")
+    body = row.get("body") or ""
+    start_at = max(0, int(offset))
+    if body and start_at >= len(body):
+        return {"status": "not_found", "brand": _BRAND,
+                "note": f"offset {start_at} 超出正文长度 {len(body)}；"
+                        "用 total_chars 内的偏移重试。"}
+    chunk, _end, _more = limits.slice_window(body, start_at, max_chars)
+    out["body"] = chunk
+    out.update(limits.truncation_fields(
+        total=len(body), offset=start_at, returned=len(chunk)))
     out["reference_status"] = row.get("reference_status")
     out["reference_note"] = row.get("reference_note")
     out["brand"] = _BRAND

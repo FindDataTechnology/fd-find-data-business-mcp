@@ -258,7 +258,10 @@ class TestWenshuReadUnit:
         out = tw.wenshu_read("f6594c3d5ac779a9")
         expected = ((_SEARCH_ROW_KEYS - {"has_body"})
                     | {"判决时间", "受理时间", "body_shape",
-                       "content_available", "content"})
+                       "content_available", "content",
+                       # 体积上限契约（mcp-result-contract）：正文按窗口返回，
+                       # 这三个字段始终给出，调用方据此续读。
+                       "total_chars", "content_offset", "content_truncated"})
         assert set(out) == expected
 
     def test_read_none_shape_no_content_key_no_fetch(self, monkeypatch):

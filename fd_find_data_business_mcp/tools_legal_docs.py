@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from fd_find_data_business_mcp import limits
 from fd_find_data_business_mcp.domain import query
 
 _BRAND = "finddata"
@@ -25,7 +26,8 @@ _FORBIDDEN_KEYS = frozenset({
     "source_id", "content_hash", "fetched_at", "loaded_at",
 })
 
-_MAX_LIMIT = 200
+# 上限的唯一真源在 limits.py（mcp-result-contract）
+_MAX_LIMIT = limits.MAX_LIST_ITEMS
 
 #: The five crawled corpora, exactly as stored in legal_documents.source.
 #: Anything else is rejected client-side instead of silently matching nothing.
@@ -163,7 +165,11 @@ def legal_docs_search(
     }
 
 
-def legal_docs_read(doc_id: int) -> dict[str, Any]:
+def legal_docs_read(
+    doc_id: int,
+    offset: int = 0,
+    max_chars: int = limits.DEFAULT_BODY_CHARS,
+) -> dict[str, Any]:
     """Read one legal document by id, body included only when it was fetched.
 
     Full metadata (including ``source_url`` and the crawler ``metadata``
@@ -173,6 +179,14 @@ def legal_docs_read(doc_id: int) -> dict[str, Any]:
     not an empty string. Returns ``{"status": "not_found"}`` for an
     unknown id; a federation failure passes through as
     ``{"status": "domain_unavailable"}``.
+
+    Bodies are windowed: at most ``max_chars`` characters (default 12000,
+    cap 40000) from ``offset``. The corpus holds documents well past the
+    default (longest observed: 177,139 characters), and an unwindowed read
+    would consume the caller's whole context in one call. ``total_chars``
+    and ``next_offset`` give the continuation point; slices are taken on
+    character boundaries, so concatenating pages reproduces the original
+    text exactly.
     """
     rows = query(
         "law_db",
@@ -195,7 +209,16 @@ def legal_docs_read(doc_id: int) -> dict[str, Any]:
     out["metadata"] = _strip_object_keys(out.get("metadata"))
     out["content_available"] = bool(row.get("content_available"))
     if out["content_available"]:
-        out["content"] = row.get("content")
+        body = row.get("content") or ""
+        start_at = max(0, int(offset))
+        if start_at >= len(body) and body:
+            return {"status": "not_found", "brand": _BRAND,
+                    "note": f"offset {start_at} 超出正文长度 {len(body)}；"
+                            "用 total_chars 内的偏移重试。"}
+        chunk, _end, _more = limits.slice_window(body, start_at, max_chars)
+        out["content"] = chunk
+        out.update(limits.truncation_fields(
+            total=len(body), offset=start_at, returned=len(chunk)))
     else:
         out["note"] = _NO_BODY_NOTE
     out["brand"] = _BRAND
