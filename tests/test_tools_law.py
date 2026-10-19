@@ -47,6 +47,8 @@ def _row(title, **over):
         "src_db": "hidden", "src_id": 7, "source_id": "hidden",
         "file_path": "hidden", "content_status": "ok", "quality_flag": None,
         "content": "SECRET-BODY",
+        # created_at：provenance.as_of 的推导来源（与 lex 侧同口径）。
+        "created_at": "2026-09-08 00:00:00",
     }
     base.update(over)
     return base

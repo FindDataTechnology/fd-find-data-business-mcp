@@ -104,7 +104,11 @@ class TestWenshuSearchUnit:
     def test_row_keys_exactly_public_metadata(self, monkeypatch):
         monkeypatch.setattr(tw, "query", _fake_query([_search_row()]))
         out = tw.wenshu_search("借款")
-        assert set(out["results"][0]) == _SEARCH_ROW_KEYS
+        # provenance 是本变更新增的溯源三件套（与 lex 侧同形状），故行键集含它。
+        assert set(out["results"][0]) == _SEARCH_ROW_KEYS | {"provenance"}
+        prov = out["results"][0]["provenance"]
+        assert set(prov) == {"source", "stable_id", "as_of"}
+        assert prov["source"] == "wenshu_db.judgments"
 
     def test_internal_coordinates_never_leak(self, monkeypatch):
         """block_key/src_id/refs planted in the row must not survive."""
@@ -257,7 +261,7 @@ class TestWenshuReadUnit:
         monkeypatch.setattr(tw, "query", _fake_query([_read_row()]))
         out = tw.wenshu_read("f6594c3d5ac779a9")
         expected = ((_SEARCH_ROW_KEYS - {"has_body"})
-                    | {"判决时间", "受理时间", "body_shape",
+                    | {"判决时间", "受理时间", "body_shape", "provenance",
                        "content_available", "content",
                        # 体积上限契约（mcp-result-contract）：正文按窗口返回，
                        # 这三个字段始终给出，调用方据此续读。
@@ -386,7 +390,13 @@ class TestWenshuSearchLive:
         if out["count"] == 0:  # corpus window gaps are a documented reality
             pytest.skip("snapshot has no hits for the probe term")
         for hit in out["results"]:
-            assert set(hit) == _SEARCH_ROW_KEYS
+            # provenance 三级件是本变更新增（与 lex 侧同形状），故行键集含它。
+            assert set(hit) == _SEARCH_ROW_KEYS | {"provenance"}
+            prov = hit["provenance"]
+            assert set(prov) == {"source", "stable_id", "as_of"}
+            assert prov["source"] == "wenshu_db.judgments"
+            assert prov["stable_id"] == str(hit["doc_id"])
+            assert prov["as_of"]  # 非空：宁可 unknown 也不空
             assert not (_FORBIDDEN & set(hit))
             assert hit["判决年份"] is None or isinstance(hit["判决年份"], int)
 

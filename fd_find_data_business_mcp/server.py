@@ -271,6 +271,19 @@ def list_concepts(entity_type: str | None = None) -> list[dict]:
         s.close()
 
 
+#: 法律四组同名工具的权威实现指向（finance-legal-value-realization 组 5，task 5.2）。
+#: 本侧这 8 个工具与 fd-legal-search-mcp 同名，**权威方是 lex 侧**（它是产品入口，
+#: 且已带回溯三件套 / 续读等新能力）。兼容期内本侧继续可用，但描述里必须写明权威方，
+#: 否则调用方面对两个入口只能靠猜。退役本身仍由 lex-private-distribution-full 承载。
+LEGAL_DEPRECATION_NOTE = (
+    "已弃用：权威实现在 fd-legal-search-mcp（lex 侧）。"
+    "该能力以 fd-legal-search-mcp 的同名工具为权威（逐条带 provenance 溯源三件套"
+    " source/stable_id/as_of，并支持续读）；本入口兼容期内继续可用且已对齐同一"
+    "溯源字段形状，但新集成请改用权威入口。本侧不做退役——退役由"
+    " lex-private-distribution-full 承载。"
+)
+
+
 @mcp.tool(annotations=annotations_for("ai_search"))
 def ai_search(
     query: str,
@@ -472,7 +485,11 @@ def law_search(title_query: str, category: str | None = None, limit: int = 50,
     with law_read. ``scope``: named retrieval scope — unknown scope errors
     explicitly; a scope excluding the law source returns an explainable
     empty result; a scoped response names the scope in effect.
-    """
+
+    已弃用：权威实现在 fd-legal-search-mcp（lex 侧）。该能力以 fd-legal-search-mcp 的
+    同名工具为权威（逐条带 provenance 溯源三件套 source/stable_id/as_of，并支持续读）；
+    本入口兼容期内继续可用且已对齐同一溯源字段形状，但新集成请改用权威入口。本侧不做
+    退役——退役由 lex-private-distribution-full 承载。"""
     from fd_find_data_business_mcp.tools_law import law_search as _impl
 
     meta, gate = _scope_gate(scope, "law")
@@ -491,7 +508,11 @@ def law_read(law_id: int) -> dict:
 
     Returns {id, title, category, type, status, publish, expiry, content,
     brand}; an unknown id returns {"status": "not_found"}.
-    """
+
+    已弃用：权威实现在 fd-legal-search-mcp（lex 侧）。该能力以 fd-legal-search-mcp 的
+    同名工具为权威（逐条带 provenance 溯源三件套 source/stable_id/as_of，并支持续读）；
+    本入口兼容期内继续可用且已对齐同一溯源字段形状，但新集成请改用权威入口。本侧不做
+    退役——退役由 lex-private-distribution-full 承载。"""
     from fd_find_data_business_mcp.tools_law import law_read as _impl
 
     return _strip(_impl(law_id))
@@ -519,7 +540,11 @@ def legal_docs_search(
     retrieval scope — unknown scope errors explicitly; a scope excluding all
     five sources returns an explainable empty result; a scoped response
     names the scope in effect.
-    """
+
+    已弃用：权威实现在 fd-legal-search-mcp（lex 侧）。该能力以 fd-legal-search-mcp 的
+    同名工具为权威（逐条带 provenance 溯源三件套 source/stable_id/as_of，并支持续读）；
+    本入口兼容期内继续可用且已对齐同一溯源字段形状，但新集成请改用权威入口。本侧不做
+    退役——退役由 lex-private-distribution-full 承载。"""
     from fd_find_data_business_mcp.tools_legal_docs import (
         legal_docs_search as _impl)
 
@@ -543,7 +568,11 @@ def legal_docs_read(doc_id: int, offset: int = 0, max_chars: int = 12000) -> dic
     ``content_available: false`` with a note and no ``content`` key; it is
     never an error and never an empty string. An unknown id returns
     {"status": "not_found"}.
-    """
+
+    已弃用：权威实现在 fd-legal-search-mcp（lex 侧）。该能力以 fd-legal-search-mcp 的
+    同名工具为权威（逐条带 provenance 溯源三件套 source/stable_id/as_of，并支持续读）；
+    本入口兼容期内继续可用且已对齐同一溯源字段形状，但新集成请改用权威入口。本侧不做
+    退役——退役由 lex-private-distribution-full 承载。"""
     from fd_find_data_business_mcp.tools_legal_docs import (
         legal_docs_read as _impl)
 
@@ -571,7 +600,11 @@ def guide_cases_search(
     retrieval scope — unknown scope errors explicitly; a scope excluding the
     guiding-cases source returns an explainable empty result; a scoped
     response names the scope in effect.
-    """
+
+    已弃用：权威实现在 fd-legal-search-mcp（lex 侧）。该能力以 fd-legal-search-mcp 的
+    同名工具为权威（逐条带 provenance 溯源三件套 source/stable_id/as_of，并支持续读）；
+    本入口兼容期内继续可用且已对齐同一溯源字段形状，但新集成请改用权威入口。本侧不做
+    退役——退役由 lex-private-distribution-full 承载。"""
     from fd_find_data_business_mcp.tools_guide_cases import (
         guide_cases_search as _impl)
 
@@ -594,7 +627,11 @@ def guide_cases_read(case_id: str, offset: int = 0, max_chars: int = 12000) -> d
     absent, never fabricated) + ``body`` full text + ``reference_status``
     with ``reference_note`` (the notice number that declared 不再参照).
     An unknown id returns {"status": "not_found"}.
-    """
+
+    已弃用：权威实现在 fd-legal-search-mcp（lex 侧）。该能力以 fd-legal-search-mcp 的
+    同名工具为权威（逐条带 provenance 溯源三件套 source/stable_id/as_of，并支持续读）；
+    本入口兼容期内继续可用且已对齐同一溯源字段形状，但新集成请改用权威入口。本侧不做
+    退役——退役由 lex-private-distribution-full 承载。"""
     from fd_find_data_business_mcp.tools_guide_cases import (
         guide_cases_read as _impl)
 
@@ -626,7 +663,11 @@ def wenshu_search(
     unknown scope errors explicitly; a scope excluding the wenshu source
     returns an explainable empty result; a scoped response names the scope
     in effect.
-    """
+
+    已弃用：权威实现在 fd-legal-search-mcp（lex 侧）。该能力以 fd-legal-search-mcp 的
+    同名工具为权威（逐条带 provenance 溯源三件套 source/stable_id/as_of，并支持续读）；
+    本入口兼容期内继续可用且已对齐同一溯源字段形状，但新集成请改用权威入口。本侧不做
+    退役——退役由 lex-private-distribution-full 承载。"""
     from fd_find_data_business_mcp.tools_wenshu import wenshu_search as _impl
 
     meta, gate = _scope_gate(scope, "wenshu")
@@ -649,7 +690,11 @@ def wenshu_read(doc_id: str, offset: int = 0, max_chars: int = 12000) -> dict:
     ``content_available: false`` honestly; a temporarily unreachable body
     store degrades to metadata with a note, never an error. An unknown id
     returns {"status": "not_found"}.
-    """
+
+    已弃用：权威实现在 fd-legal-search-mcp（lex 侧）。该能力以 fd-legal-search-mcp 的
+    同名工具为权威（逐条带 provenance 溯源三件套 source/stable_id/as_of，并支持续读）；
+    本入口兼容期内继续可用且已对齐同一溯源字段形状，但新集成请改用权威入口。本侧不做
+    退役——退役由 lex-private-distribution-full 承载。"""
     from fd_find_data_business_mcp.tools_wenshu import wenshu_read as _impl
 
     return _strip(_impl(doc_id, offset=offset, max_chars=max_chars))

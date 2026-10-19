@@ -19,6 +19,21 @@ from fd_find_data_business_mcp.domain import query
 
 _BRAND = "finddata"
 
+# 溯源三件套（与 lex 侧同形状，见 legal_provenance 模块头）。
+# guide_cases 无 created_at，口径列取 loaded_at（入库时间）。
+from .legal_provenance import (  # noqa: E402
+    SOURCE_GUIDE_CASES, Provenance, ensure_provenance, with_provenance,
+)
+
+
+def _as_of(row: dict[str, Any]) -> str:
+    """数据口径日期：发布日期，缺失回退列入日期（与 lex 侧同序）。
+
+    两列实测均非空；皆缺则空串，由 ensure_provenance 当 bug 拦下，不降级。
+    SQL 里两列已 ::date 归一，故这里无需再截日期部分。
+    """
+    return str(row.get("publish_at") or row.get("listed_at") or "")
+
 #: Crawler bookkeeping columns — provenance isolation: never in a response.
 _FORBIDDEN_KEYS = frozenset({"content_hash", "fetched_at"})
 
@@ -72,7 +87,9 @@ def _bad_filter(field: str, valid: frozenset[str]) -> dict[str, Any]:
 def _result(row: dict[str, Any]) -> dict[str, Any]:
     out = {k: row.get(k) for k in _SEARCH_FIELDS}
     out["brand"] = _BRAND
-    return {k: v for k, v in out.items() if k not in _FORBIDDEN_KEYS}
+    out = {k: v for k, v in out.items() if k not in _FORBIDDEN_KEYS}
+    return with_provenance(out, Provenance(
+        SOURCE_GUIDE_CASES, str(row.get("source_id")), _as_of(row)))
 
 
 def guide_cases_search(
@@ -113,7 +130,7 @@ def guide_cases_search(
         "SELECT source_id, case_no, doc_type, title,\n"
         "       listed_at::date::text AS listed_at,\n"
         "       publish_at::date::text AS publish_at,\n"
-        "       source, reference_status,\n"
+        "       source, reference_status, loaded_at,\n"
         "       CASE WHEN title ILIKE :exact THEN 0\n"
         "            WHEN title ILIKE :prefix THEN 1\n"
         "            ELSE 2 END AS rank\n"
@@ -134,7 +151,7 @@ def guide_cases_search(
     rows = sorted(rows, key=lambda r: (_rank(r.get("title"), needle), r.get("title") or ""))
     truncated = len(rows) > limit
     return {
-        "results": [_result(r) for r in rows[:limit]],
+        "results": ensure_provenance([_result(r) for r in rows[:limit]]),
         "count": min(len(rows), limit),
         "truncated": truncated,
     }
@@ -161,7 +178,7 @@ def guide_cases_read(
         "       publish_at::date::text AS publish_at,\n"
         "       source, source_url,\n"
         "       keyword, gist, facts, result, reasoning, statutes,\n"
-        "       body, reference_status, reference_note\n"
+        "       body, reference_status, reference_note, loaded_at\n"
         "FROM guide_cases\n"
         "WHERE source_id = :case_id",
         {"case_id": case_id},
@@ -189,4 +206,7 @@ def guide_cases_read(
     out["reference_status"] = row.get("reference_status")
     out["reference_note"] = row.get("reference_note")
     out["brand"] = _BRAND
-    return {k: v for k, v in out.items() if k not in _FORBIDDEN_KEYS}
+    return ensure_provenance([with_provenance(
+        {k: v for k, v in out.items() if k not in _FORBIDDEN_KEYS},
+        Provenance(SOURCE_GUIDE_CASES, str(row.get("source_id")), _as_of(row)),
+    )])[0]

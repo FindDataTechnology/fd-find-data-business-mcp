@@ -21,6 +21,12 @@ _FORBIDDEN_KEYS = frozenset({
 
 _METADATA_FIELDS = ("id", "title", "category", "type", "status", "publish", "expiry")
 
+# 溯源三件套（与 lex 侧 fd-legal-search-mcp 同形状，见 legal_provenance 模块头）。
+# `created_at` 不进 _METADATA_FIELDS——它只用于推导 provenance.as_of，不外泄为业务字段。
+from .legal_provenance import (  # noqa: E402
+    SOURCE_LAWS, Provenance, as_of_date, ensure_provenance, with_provenance,
+)
+
 _MAX_LIMIT = 200
 
 # The crawled corpus stores crawler-batch labels (重下载/新法速递) and synonym
@@ -92,7 +98,9 @@ def _result(row: dict[str, Any], *, content: bool = False) -> dict[str, Any]:
     if content:
         out["content"] = row.get("content")
     out["brand"] = _BRAND
-    return {k: v for k, v in out.items() if k not in _FORBIDDEN_KEYS}
+    out = {k: v for k, v in out.items() if k not in _FORBIDDEN_KEYS}
+    return with_provenance(out, Provenance(
+        SOURCE_LAWS, str(row.get("id")), as_of_date(row.get("created_at"))))
 
 
 def law_search(title_query: str, category: str | None = None, limit: int = 50) -> dict[str, Any]:
@@ -118,12 +126,12 @@ def law_search(title_query: str, category: str | None = None, limit: int = 50) -
         "batch": sorted(_BATCH_CATEGORIES),
     }
     sql = (
-        "SELECT id, title, category, type, status, publish, expiry\n"
+        "SELECT id, title, category, type, status, publish, expiry, created_at\n"
         "FROM (\n"
         "  SELECT DISTINCT ON (tkey)\n"
-        "         id, title, category, type, status, publish, expiry, tkey, rank\n"
+        "         id, title, category, type, status, publish, expiry, created_at, tkey, rank\n"
         "  FROM (\n"
-        "    SELECT id, title, category, type, status, publish, expiry,\n"
+        "    SELECT id, title, category, type, status, publish, expiry, created_at,\n"
         "           lower(title) AS tkey,\n"
         "           CASE WHEN title ILIKE :exact THEN 0\n"
         "                WHEN title ILIKE :prefix THEN 1\n"
@@ -155,7 +163,7 @@ def law_search(title_query: str, category: str | None = None, limit: int = 50) -
     rows = sorted(rows, key=lambda r: (_rank(r.get("title"), needle), r.get("title") or ""))
     truncated = len(rows) > limit
     return {
-        "results": [_result(r) for r in rows[:limit]],
+        "results": ensure_provenance([_result(r) for r in rows[:limit]]),
         "count": min(len(rows), limit),
         "truncated": truncated,
     }
@@ -169,7 +177,7 @@ def law_read(law_id: int) -> dict[str, Any]:
     """
     rows = query(
         "law_db",
-        "SELECT id, title, category, type, status, publish, expiry, content\n"
+        "SELECT id, title, category, type, status, publish, expiry, content, created_at\n"
         "FROM laws\n"
         "WHERE id = :law_id",
         {"law_id": law_id},
@@ -178,4 +186,4 @@ def law_read(law_id: int) -> dict[str, Any]:
         return rows
     if not rows:
         return {"status": "not_found", "brand": _BRAND}
-    return _result(rows[0], content=True)
+    return ensure_provenance([_result(rows[0], content=True)])[0]

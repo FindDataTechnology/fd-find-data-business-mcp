@@ -43,6 +43,8 @@ def _search_row(title="某管理条例", **over):
         "source_url": "https://example.gov/rule/1",
         "metadata": {"object_keys": ["a"], "page_no": "第3号"},
         "content": "SECRET-BODY",
+        # loaded_at：本表无 created_at，provenance.as_of 取入库时间 loaded_at。
+        "loaded_at": "2026-09-08 00:00:00",
     }
     base.update(over)
     return base
@@ -91,7 +93,13 @@ class TestLegalDocsSearchUnit:
     def test_row_keys_exactly_public_metadata(self, monkeypatch):
         monkeypatch.setattr(tld, "query", _fake_query([_search_row()]))
         out = tld.legal_docs_search("管理条例")
-        assert set(out["results"][0]) == _SEARCH_ROW_KEYS
+        # provenance 是本变更新增的溯源三件套（与 lex 侧同形状），故行键集含它。
+        assert set(out["results"][0]) == _SEARCH_ROW_KEYS | {"provenance"}
+        prov = out["results"][0]["provenance"]
+        assert set(prov) == {"source", "stable_id", "as_of"}
+        assert prov["source"] == "law_db.legal_documents"
+        # as_of 是完整 ISO（不截日期）——与 lex 侧 tools_corpus 同口径。
+        assert prov["as_of"] == "2026-09-08 00:00:00"
 
     def test_rows_branded_and_provenance_free(self, monkeypatch):
         rows = [_search_row("管理条例甲", id=9), _search_row("管理条例乙", id=10)]
@@ -217,8 +225,10 @@ class TestLegalDocsSearchUnit:
         monkeypatch.setattr(tld, "query", _fake_query([], calls))
         tld.legal_docs_search("条例")
         sql = calls[0]["sql"]
-        for col in ("source_id", "content_hash", "fetched_at", "loaded_at", "metadata"):
+        # loaded_at 已出禁选清单：它是 provenance.as_of 的口径来源，必须读。
+        for col in ("source_id", "content_hash", "fetched_at", "metadata"):
             assert col not in sql
+        assert "loaded_at" in sql  # as_of 的推导来源
         assert "(content IS NOT NULL) AS has_content" in sql
 
     def test_domain_unavailable_passthrough(self, monkeypatch):
@@ -255,7 +265,7 @@ class TestLegalDocsReadUnit:
         monkeypatch.setattr(tld, "query", _fake_query([_read_row(has_body=False)]))
         out = tld.legal_docs_read(1)
         expected = (_SEARCH_ROW_KEYS - {"has_content"}) | {
-            "source_url", "metadata", "content_available", "note"}
+            "source_url", "metadata", "content_available", "note", "provenance"}
         assert set(out) == expected
 
     def test_read_not_found(self, monkeypatch):

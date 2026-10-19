@@ -31,6 +31,21 @@ from fd_find_data_business_mcp.domain import query
 
 _BRAND = "finddata"
 
+# 溯源三件套（与 lex 侧同形状，见 legal_provenance 模块头）。
+# wenshu 无入库时间列，口径取文书自己的日期：发布时间 → 判决时间 → "unknown"
+# （与 lex 侧 `tools_case._as_of` 逐字同序；绝不编日期）。
+from .legal_provenance import (  # noqa: E402
+    SOURCE_WENSHU, Provenance, ensure_provenance, with_provenance,
+)
+
+
+def _as_of(row: dict[str, Any]) -> str:
+    for key in ("发布时间", "判决时间"):
+        value = row.get(key)
+        if value:
+            return str(value)
+    return "unknown"
+
 #: Internal coordinates and raw dictionary refs that must never reach a
 #: customer payload. Search SQL never selects them; read SQL needs only
 #: ``block_key`` (to locate the body block) and this filter keeps it in.
@@ -100,7 +115,9 @@ def _result(row: dict[str, Any]) -> dict[str, Any]:
     out = {k: row.get(k) for k in _SEARCH_FIELDS}
     out["has_body"] = bool(row.get("has_body"))
     out["brand"] = _BRAND
-    return {k: v for k, v in out.items() if k not in _FORBIDDEN_KEYS}
+    out = {k: v for k, v in out.items() if k not in _FORBIDDEN_KEYS}
+    return with_provenance(out, Provenance(
+        SOURCE_WENSHU, str(row.get("doc_id")), _as_of(row)))
 
 
 def wenshu_search(
@@ -184,7 +201,7 @@ def wenshu_search(
     rows = sorted(rows, key=lambda r: (_rank(r.get("标题"), needle), r.get("标题") or ""))
     truncated = len(rows) > limit
     return {
-        "results": [_result(r) for r in rows[:limit]],
+        "results": ensure_provenance([_result(r) for r in rows[:limit]]),
         "count": min(len(rows), limit),
         "truncated": truncated,
         "brand": _BRAND,
@@ -259,4 +276,7 @@ def wenshu_read(
             out["content"] = chunk
             out.update(limits.truncation_fields(
                 total=len(content), offset=start_at, returned=len(chunk)))
-    return {k: v for k, v in out.items() if k not in _FORBIDDEN_KEYS}
+    return ensure_provenance([with_provenance(
+        {k: v for k, v in out.items() if k not in _FORBIDDEN_KEYS},
+        Provenance(SOURCE_WENSHU, str(row.get("doc_id")), _as_of(row)),
+    )])[0]

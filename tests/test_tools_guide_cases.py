@@ -48,6 +48,8 @@ def _row(title="某指导性案例", **over):
         "result": "裁判结果", "reasoning": "裁判理由", "statutes": "相关法条",
         "body": "FULL-BODY",
         "reference_status": "有效", "reference_note": None,
+        # loaded_at：本表无 created_at，provenance.as_of 取入库时间。
+        "loaded_at": "2026-09-08 00:00:00",
         # poisoned provenance — must never surface in any response
         "content_hash": "SECRET-HASH", "fetched_at": "2025-01-01T00:00:00+08",
     }

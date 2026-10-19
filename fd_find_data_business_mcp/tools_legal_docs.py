@@ -19,6 +19,24 @@ from fd_find_data_business_mcp.domain import query
 
 _BRAND = "finddata"
 
+# 溯源三件套（与 lex 侧同形状，见 legal_provenance 模块头）。
+from .legal_provenance import (  # noqa: E402
+    SOURCE_LEGAL_DOCS, Provenance, ensure_provenance, with_provenance,
+)
+
+
+def _as_of(row: dict[str, Any]) -> str:
+    """as_of = 入库时间 loaded_at 的**完整** ISO 串（与 lex 侧同口径）。
+
+    刻意不取日期部分：lex 侧 `tools_corpus._provenance` 回的是
+    `2026-09-24T13:37:12.502264+08:00` 这种带时分秒与时区的原值。两侧若一边截到
+    日、一边给全串，调用方按入口分支解析——正是本组要消除的形态。
+    """
+    value = row.get("loaded_at")
+    if hasattr(value, "isoformat"):
+        value = value.isoformat()
+    return str(value) if value else ""
+
 #: Crawler provenance that must never reach a customer payload. Deliberately
 #: NOT tools_law's blacklist: this table's ``source`` column IS the public
 #: five-corpus vocabulary and is returned as-is.
@@ -88,7 +106,9 @@ def _result(row: dict[str, Any]) -> dict[str, Any]:
     out["source_label_zh"] = _SOURCE_LABELS_ZH.get(row.get("source") or "")
     out["has_content"] = bool(row.get("has_content"))
     out["brand"] = _BRAND
-    return {k: v for k, v in out.items() if k not in _FORBIDDEN_KEYS}
+    out = {k: v for k, v in out.items() if k not in _FORBIDDEN_KEYS}
+    return with_provenance(out, Provenance(
+        SOURCE_LEGAL_DOCS, str(row.get("id")), _as_of(row)))
 
 
 def _strip_object_keys(metadata: Any) -> Any:
@@ -137,6 +157,7 @@ def legal_docs_search(
         "       published_at::date::text AS published_at,\n"
         "       effective_at::date::text AS effective_at,\n"
         "       (content IS NOT NULL) AS has_content,\n"
+        "       loaded_at,\n"
         "       CASE WHEN title ILIKE :exact THEN 0\n"
         "            WHEN title ILIKE :prefix THEN 1\n"
         "            ELSE 2 END AS rank\n"
@@ -158,7 +179,7 @@ def legal_docs_search(
     rows = sorted(rows, key=lambda r: (_rank(r.get("title"), needle), r.get("title") or ""))
     truncated = len(rows) > limit
     return {
-        "results": [_result(r) for r in rows[:limit]],
+        "results": ensure_provenance([_result(r) for r in rows[:limit]]),
         "count": min(len(rows), limit),
         "truncated": truncated,
         "brand": _BRAND,
@@ -193,7 +214,7 @@ def legal_docs_read(
         "SELECT id, title, source, doc_type, status, authority, language,\n"
         "       published_at::date::text AS published_at,\n"
         "       effective_at::date::text AS effective_at,\n"
-        "       source_url, metadata,\n"
+        "       source_url, metadata, loaded_at,\n"
         "       (content IS NOT NULL) AS content_available, content\n"
         "FROM legal_documents\n"
         "WHERE id = :doc_id",
@@ -222,4 +243,7 @@ def legal_docs_read(
     else:
         out["note"] = _NO_BODY_NOTE
     out["brand"] = _BRAND
-    return {k: v for k, v in out.items() if k not in _FORBIDDEN_KEYS}
+    return ensure_provenance([with_provenance(
+        {k: v for k, v in out.items() if k not in _FORBIDDEN_KEYS},
+        Provenance(SOURCE_LEGAL_DOCS, str(row.get("id")), _as_of(row)),
+    )])[0]
