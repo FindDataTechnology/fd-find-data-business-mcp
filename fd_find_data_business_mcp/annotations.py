@@ -78,6 +78,7 @@ TOOL_ANNOTATIONS: dict[str, dict[str, Any]] = {
     # Domain federation: search/list tools meter scoped calls; read tools do not.
     "yearbook_search_indicators": dict(METERED_SEARCH),
     "yearbook_read": dict(READ_ONLY),
+    "yearbook_regions": dict(READ_ONLY),
     "law_search": dict(METERED_SEARCH),
     "law_read": dict(READ_ONLY),
     "legal_docs_search": dict(METERED_SEARCH),

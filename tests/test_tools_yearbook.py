@@ -232,7 +232,8 @@ class TestReadUnit:
         assert "dims->>'admin_region' = :region))" in sql
         assert "data_year BETWEEN :sy AND :ey" in sql
         assert "table_id" not in sql and "table_cells" not in sql
-        assert params == {"iid": 7, "region": "浙江省", "sy": 2000, "ey": 2020, "lim": 201}
+        assert params == {"iid": 7, "region": "浙江省", "sy": 2000, "ey": 2020,
+                          "lim": 201, "off": 0}
 
     def test_sql_numeric_row_wins_edition_ties(self, monkeypatch):
         fake = FakeDomain([])
@@ -272,13 +273,90 @@ class TestReadUnit:
     def test_no_rows_is_truthful_empty_not_an_error(self, monkeypatch):
         monkeypatch.setattr(ty, "domain_query", FakeDomain([]))
         r = ty.yearbook_read(12345, region="无此区域")
-        assert r == {"results": [], "count": 0, "truncated": False}
+        assert r == {"results": [], "count": 0, "truncated": False,
+                     "next_offset": None}
         assert "status" not in r
+
+    def test_province_filter_uses_dimension_and_keeps_region_guard(self, monkeypatch):
+        fake = FakeDomain([])
+        monkeypatch.setattr(ty, "domain_query", fake)
+        ty.yearbook_read(7, province="山西")
+        sql = fake.calls[0][1]
+        assert "dims->>'admin_region' = :province" in sql
+        assert fake.calls[0][2]["province"] == "山西"
+        assert "region" not in fake.calls[0][2]
+        # combining province with region must keep the guarded region predicate
+        ty.yearbook_read(7, province="山西", region="万柏林区")
+        sql2 = fake.calls[1][1]
+        assert "dims->>'admin_region' = :province" in sql2
+        assert "(region = :region OR ((region IS NULL OR btrim(region) = '')" in sql2
+        assert fake.calls[1][2] == {"iid": 7, "lim": 201, "off": 0,
+                                    "region": "万柏林区", "province": "山西"}
+
+    def test_offset_pagination_reports_next_offset(self, monkeypatch):
+        rows = [_val_row(2020, region="A县"), _val_row(2020, region="B县"),
+                _val_row(2020, region="C县")]  # limit+1 probe rows
+        monkeypatch.setattr(ty, "domain_query", FakeDomain(rows))
+        first = ty.yearbook_read(1, limit=2)
+        assert first["count"] == 2 and first["truncated"] is True
+        assert first["next_offset"] == 2
+        assert [r["region"] for r in first["results"]] == ["A县", "B县"]
+
+        monkeypatch.setattr(ty, "domain_query", FakeDomain([_val_row(2020, region="C县")]))
+        second = ty.yearbook_read(1, limit=2, offset=2)
+        assert second["count"] == 1 and second["truncated"] is False
+        assert second["next_offset"] is None
+
+    def test_rows_sorted_by_year_then_region(self, monkeypatch):
+        rows = [_val_row(2020, region="B县"), _val_row(2019, region="C县"),
+                _val_row(2020, region="A县")]
+        monkeypatch.setattr(ty, "domain_query", FakeDomain(rows))
+        r = ty.yearbook_read(1)
+        assert [(x["year"], x["region"]) for x in r["results"]] == [
+            (2019, "C县"), (2020, "A县"), (2020, "B县")]
 
     def test_domain_unavailable_passes_through_unchanged(self, monkeypatch):
         fail = {"status": "domain_unavailable", "detail": "TimeoutError"}
         monkeypatch.setattr(ty, "domain_query", FakeDomain(fail))
         assert ty.yearbook_read(1) == fail
+
+
+class TestRegionsUnit:
+    def test_regions_sql_groups_by_dimension_and_is_bounded(self, monkeypatch):
+        fake = FakeDomain([])
+        monkeypatch.setattr(ty, "domain_query", fake)
+        ty.yearbook_regions(12208, limit=10)
+        dbname, sql, params = fake.calls[0]
+        assert dbname == "yearbook_catalog"
+        assert "dims->>'admin_region' AS province" in sql
+        assert "GROUP BY region, dims->>'admin_region'" in sql
+        assert "ORDER BY province NULLS LAST, region NULLS LAST" in sql
+        assert params == {"iid": 12208, "lim": 11}
+
+    def test_regions_rows_map_to_envelope(self, monkeypatch):
+        rows = [{"region": "万柏林区", "province": "山西", "row_count": 13},
+                {"region": "太原市", "province": "山西", "row_count": 5}]
+        monkeypatch.setattr(ty, "domain_query", FakeDomain(rows))
+        r = ty.yearbook_regions(12208)
+        assert r == {"results": [
+            {"province": "山西", "region": "万柏林区", "row_count": 13},
+            {"province": "山西", "region": "太原市", "row_count": 5},
+        ], "count": 2, "truncated": False}
+
+    def test_regions_limit_capped_and_truncation_reported(self, monkeypatch):
+        rows = [{"region": f"县{i}", "province": "山西", "row_count": 1}
+                for i in range(3)]
+        fake = FakeDomain(rows)
+        monkeypatch.setattr(ty, "domain_query", fake)
+        r = ty.yearbook_regions(1, limit=2)
+        assert r["count"] == 2 and r["truncated"] is True
+        ty.yearbook_regions(1, limit=99_999)
+        assert fake.calls[1][2]["lim"] == 501
+
+    def test_regions_domain_unavailable_passes_through(self, monkeypatch):
+        fail = {"status": "domain_unavailable", "detail": "TimeoutError"}
+        monkeypatch.setattr(ty, "domain_query", FakeDomain(fail))
+        assert ty.yearbook_regions(1) == fail
 
 
 # --- Integration: real PG over the tailnet ------------------------------------
@@ -349,7 +427,8 @@ class TestReadIntegration:
     def test_filter_matching_nothing_returns_empty_envelope(self):
         iid, _, _, _ = _discover_series()
         r = ty.yearbook_read(iid, region="__无此区域__", start_year=1800, end_year=1801)
-        assert r == {"results": [], "count": 0, "truncated": False}
+        assert r == {"results": [], "count": 0, "truncated": False,
+                     "next_offset": None}
         assert "status" not in r
 
     def test_regression_linxiang_numeric_value_over_annotation(self):

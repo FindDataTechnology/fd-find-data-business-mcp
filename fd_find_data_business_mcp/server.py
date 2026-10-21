@@ -459,19 +459,42 @@ def yearbook_read(
     start_year: int | None = None,
     end_year: int | None = None,
     limit: int = 200,
+    offset: int = 0,
+    province: str | None = None,
 ) -> dict:
-    """Read a yearbook indicator's annual series, optionally for one region
-    and year range.
+    """Read a yearbook indicator's annual series, optionally for one region,
+    one province, and a year range.
 
     Returns {results: [{year, region, value, unit, brand}], count, truncated,
-    rows_returned}; a filter with no data returns an empty results list
-    (truthful, not an error). Latest edition wins when multiple yearbook
-    editions cover the same region-year. ``rows_returned`` = observation rows
-    served (equal to count).
+    next_offset, rows_returned}; a filter with no data returns an empty results
+    list (truthful, not an error). Latest edition wins when multiple yearbook
+    editions cover the same region-year; rows are ordered deterministically by
+    (data_year, region). ``province`` selects every county/city row of a
+    province via the dims.admin_region dimension (the supported way to read a
+    province-level series from county-stored values). ``offset`` pages through
+    the full set; when truncated, ``next_offset`` is the next page start.
+    ``rows_returned`` = observation rows served (equal to count).
     """
     from fd_find_data_business_mcp.tools_yearbook import yearbook_read as _impl
 
-    return _with_rows_returned(_strip(_impl(indicator_id, region, start_year, end_year, limit)))
+    return _with_rows_returned(_strip(_impl(
+        indicator_id, region, start_year, end_year, limit, offset, province)))
+
+
+@mcp.tool(annotations=annotations_for("yearbook_regions"))
+def yearbook_regions(indicator_id: int, limit: int = 500) -> dict:
+    """List the available (province, region) pairs of one yearbook indicator.
+
+    Returns {results: [{province, region, row_count}], count, truncated,
+    rows_returned}, ordered by (province, region). ``province`` comes from the
+    dims.admin_region dimension; ``region`` is the region column (null/empty
+    for province-level values). Use it to pick a province/region before
+    yearbook_read. If the yearbook store is unreachable, returns
+    {"status": "domain_unavailable"} instead of failing.
+    """
+    from fd_find_data_business_mcp.tools_yearbook import yearbook_regions as _impl
+
+    return _with_rows_returned(_strip(_impl(indicator_id, limit)))
 
 
 @mcp.tool(annotations=annotations_for("law_search"))

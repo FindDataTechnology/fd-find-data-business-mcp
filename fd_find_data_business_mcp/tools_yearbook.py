@@ -24,6 +24,7 @@ _REGISTRY_ANCHOR = ("yearbook_catalog", "indicators", "id")
 
 _SEARCH_LIMIT_MAX = 200
 _READ_LIMIT_MAX = 1000
+_REGIONS_LIMIT_MAX = 500
 
 _SEARCH_SQL = """
 SELECT ind.id AS id, ind.std_name AS name, ind.category AS category,
@@ -39,13 +40,29 @@ ORDER BY (lower(ind.std_name) = lower(:q)) DESC,
 LIMIT :lim
 """
 
+# DISTINCT ON requires ORDER BY to start with (region, data_year); the outer
+# query re-sorts by (data_year, region) so pagination is deterministic and
+# year-major for consumers.
 _READ_SELECT = """
-SELECT DISTINCT ON (region, data_year)
-       data_year, region, value_num, value, unit
+SELECT data_year, region, value_num, value, unit
+FROM (
+    SELECT DISTINCT ON (region, data_year)
+           data_year, region, value_num, value, unit
+    FROM indicator_values
+    WHERE {conds}
+    ORDER BY region, data_year, edition_year DESC NULLS LAST,
+             (value_num IS NULL), id
+) latest
+ORDER BY data_year, region COLLATE "C"
+LIMIT :lim OFFSET :off
+"""
+
+_REGIONS_SQL = """
+SELECT region, dims->>'admin_region' AS province, count(*) AS row_count
 FROM indicator_values
-WHERE {conds}
-ORDER BY region, data_year, edition_year DESC NULLS LAST,
-         (value_num IS NULL), id
+WHERE indicator_id = :iid
+GROUP BY region, dims->>'admin_region'
+ORDER BY province NULLS LAST, region NULLS LAST
 LIMIT :lim
 """
 
@@ -107,6 +124,8 @@ def yearbook_read(
     start_year: int | None = None,
     end_year: int | None = None,
     limit: int = 200,
+    offset: int = 0,
+    province: str | None = None,
 ) -> dict:
     """Read the value series of one yearbook indicator.
 
@@ -114,17 +133,31 @@ def yearbook_read(
     only, chosen in SQL with DISTINCT ON. Within the same edition a row
     with a numeric value outranks text siblings (English annotations and
     header residue are ingested from parallel columns); a text row is
-    served only when no numeric sibling exists for that cell. The region
-    filter matches the ``region`` column directly, and additionally matches
-    the ``dims.admin_region`` dimension when the column carries no region
-    (province-level values are ingested with the region held in the
-    dimension and an empty column). Returns ``{results, count,
-    truncated}``; no rows is a truthful empty envelope, and a domain
-    failure is passed through unchanged.
+    served only when no numeric sibling exists for that cell.
+
+    ``region`` matches the ``region`` column directly, and additionally
+    matches the ``dims.admin_region`` dimension when the column carries no
+    region (province-level values are ingested with the region held in the
+    dimension and an empty column). The guard matters: cross-region
+    comparison tables put the ROW region in the column while the dimension
+    holds the COLUMN region — an unguarded OR would serve those mislabeled
+    siblings.
+
+    ``province`` matches ``dims->>'admin_region'`` regardless of whether
+    the ``region`` column is empty — the supported way to select all
+    county/city rows of a province. It is combinable with ``region`` and
+    the year range, and never relaxes the ``region`` guard above.
+
+    Rows are ordered deterministically by ``(data_year, region)``. ``offset``
+    pages through the full result set; when more rows remain the response
+    carries ``truncated: true`` and ``next_offset``. Returns
+    ``{results, count, truncated, next_offset}``; no rows is a truthful
+    empty envelope, and a domain failure is passed through unchanged.
     """
     limit = _clamp(limit, _READ_LIMIT_MAX)
+    offset = max(0, int(offset or 0))
     conds = ["indicator_id = :iid"]
-    params: dict[str, Any] = {"iid": indicator_id, "lim": limit + 1}
+    params: dict[str, Any] = {"iid": indicator_id, "lim": limit + 1, "off": offset}
     if region is not None:
         # Match the region column directly; fall back to the dimension only
         # when the column carries no region (province values are ingested
@@ -136,6 +169,13 @@ def yearbook_read(
             "(region = :region OR ((region IS NULL OR btrim(region) = '')"
             " AND dims->>'admin_region' = :region))")
         params["region"] = region
+    if province is not None:
+        # Separate parameter: selects every county/city row of a province
+        # even when the region column is non-empty. It must not widen the
+        # region guard above (that guard protects cross-region comparison
+        # tables).
+        conds.append("dims->>'admin_region' = :province")
+        params["province"] = province
     if start_year is not None or end_year is not None:
         conds.append("data_year BETWEEN :sy AND :ey")
         params["sy"] = start_year if start_year is not None else -2147483648
@@ -149,5 +189,32 @@ def yearbook_read(
         value = r["value_num"] if r["value_num"] is not None else r["value"]
         results.append({"year": r["data_year"], "region": r["region"],
                         "value": _num(value), "unit": r["unit"], "brand": "finddata"})
-    results.sort(key=lambda row: row["year"])
+    results.sort(key=lambda row: (row["year"], (row["region"] or "").encode("utf-8")))
+    return {
+        "results": results,
+        "count": len(results),
+        "truncated": truncated,
+        "next_offset": offset + limit if truncated else None,
+    }
+
+
+def yearbook_regions(indicator_id: int, limit: int = 500) -> dict:
+    """List the available (province, region) pairs of one indicator.
+
+    Returns ``{results: [{province, region, row_count}], count, truncated}``
+    ordered by ``(province, region)``. ``province`` comes from the
+    ``dims.admin_region`` dimension; ``region`` is the region column (null
+    or empty for province-level values). The list is bounded by ``limit``
+    (max 500); a domain failure is passed through unchanged.
+    """
+    limit = _clamp(limit, _REGIONS_LIMIT_MAX)
+    rows = domain_query(_DB, _REGIONS_SQL, {"iid": indicator_id, "lim": limit + 1})
+    if isinstance(rows, dict):
+        return rows
+    truncated = len(rows) > limit
+    results = [
+        {"province": r["province"], "region": r["region"],
+         "row_count": int(r["row_count"])}
+        for r in rows[:limit]
+    ]
     return {"results": results, "count": len(results), "truncated": truncated}

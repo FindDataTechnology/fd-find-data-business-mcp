@@ -48,7 +48,8 @@
       "level": "commercial",
       "tools": [
         "yearbook_search_indicators",
-        "yearbook_read"
+        "yearbook_read",
+        "yearbook_regions"
       ],
       "notes": "统计年鉴域。法律预设双计算器的基数通道：39709（城镇居民人均可支配收入，31 省 2017-2024）、39711（农村居民人均可支配收入）。省级社平工资分省分年在册缺失（见 finddata docs/legal-presets/INDICATOR-CODES.md）。"
     },
@@ -139,6 +140,6 @@
   "registry": {
     "entry_path": "/fd-find-data-business-mcp",
     "upstream": "http://guangzhou-zihan.mesh.finddata.cn:30803/mcp",
-    "expected_tool_count": 32
+    "expected_tool_count": 33
   }
 }
