@@ -31,7 +31,7 @@ spec:
     spec:
       containers:
         - name: fd-find-data-business-mcp
-          image: ccr.ccs.tencentyun.com/finddata-business/fd-find-data-business-mcp:sha-8c8bc58
+          image: ccr.ccs.tencentyun.com/finddata-business/fd-find-data-business-mcp:sha-305b92e
           imagePullPolicy: Always
           ports:
             - name: mcp
