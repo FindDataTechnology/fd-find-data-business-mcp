@@ -469,10 +469,12 @@ def yearbook_read(
     next_offset, rows_returned}; a filter with no data returns an empty results
     list (truthful, not an error). Latest edition wins when multiple yearbook
     editions cover the same region-year; rows are ordered deterministically by
-    (data_year, region). ``province`` selects every county/city row of a
-    province via the dims.admin_region dimension (the supported way to read a
-    province-level series from county-stored values). ``offset`` pages through
-    the full set; when truncated, ``next_offset`` is the next page start.
+    (data_year, region). ``province`` accepts a province name, a two-letter
+    code or an alias (e.g. 山西 / sx / 山西省) and selects every county/city row
+    of that province: rows carrying dims.admin_region match on the dimension,
+    the rest fall back to the materialized (indicator, region) province map.
+    ``offset`` pages through the full set; when truncated, ``next_offset`` is
+    the next page start.
     ``rows_returned`` = observation rows served (equal to count).
     """
     from fd_find_data_business_mcp.tools_yearbook import yearbook_read as _impl
@@ -485,12 +487,16 @@ def yearbook_read(
 def yearbook_regions(indicator_id: int, limit: int = 500) -> dict:
     """List the available (province, region) pairs of one yearbook indicator.
 
-    Returns {results: [{province, region, row_count}], count, truncated,
-    rows_returned}, ordered by (province, region). ``province`` comes from the
-    dims.admin_region dimension; ``region`` is the region column (null/empty
-    for province-level values). Use it to pick a province/region before
-    yearbook_read. If the yearbook store is unreachable, returns
-    {"status": "domain_unavailable"} instead of failing.
+    Returns {results: [{province, province_code, region, row_count}],
+    provinces: [{code, name, aliases}], count, truncated, rows_returned},
+    ordered by (province, region). ``province`` is resolved row-level: the
+    dims.admin_region dimension when present, otherwise the materialized
+    (indicator, region) province map; ``region`` is the region column
+    (null/empty for province-level values). ``provinces`` is the bounded
+    dictionary slice so a caller can normalise name/alias/code before reading.
+    Use it to pick a province/region before yearbook_read. If the yearbook
+    store is unreachable, returns {"status": "domain_unavailable"} instead of
+    failing.
     """
     from fd_find_data_business_mcp.tools_yearbook import yearbook_regions as _impl
 

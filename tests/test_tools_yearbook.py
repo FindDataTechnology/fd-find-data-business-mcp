@@ -225,11 +225,11 @@ class TestReadUnit:
         ty.yearbook_read(7, region="浙江省", start_year=2000, end_year=2020)
         dbname, sql, params = fake.calls[0]
         assert dbname == "yearbook_catalog"
-        assert "DISTINCT ON (region, data_year)" in sql
-        assert "edition_year DESC NULLS LAST" in sql
+        assert "DISTINCT ON (iv.region, iv.data_year)" in sql
+        assert "iv.edition_year DESC NULLS LAST" in sql
         assert "indicator_id = :iid" in sql
-        assert "(region = :region OR ((region IS NULL OR btrim(region) = '')" in sql
-        assert "dims->>'admin_region' = :region))" in sql
+        assert "(iv.region = :region OR ((iv.region IS NULL OR btrim(iv.region) = '')" in sql
+        assert "iv.dims->>'admin_region' = :region))" in sql
         assert "data_year BETWEEN :sy AND :ey" in sql
         assert "table_id" not in sql and "table_cells" not in sql
         assert params == {"iid": 7, "region": "浙江省", "sy": 2000, "ey": 2020,
@@ -241,8 +241,8 @@ class TestReadUnit:
         ty.yearbook_read(7)
         sql = fake.calls[0][1]
         i_edition = sql.index("edition_year DESC NULLS LAST")
-        i_numeric = sql.index("(value_num IS NULL)")
-        i_id = sql.index(", id", i_numeric)
+        i_numeric = sql.index("(iv.value_num IS NULL)")
+        i_id = sql.index(", iv.id", i_numeric)
         assert i_edition < i_numeric < i_id  # numeric rows win ties, id breaks the rest
 
     def test_no_region_argument_means_no_region_filter(self, monkeypatch):
@@ -277,21 +277,57 @@ class TestReadUnit:
                      "next_offset": None}
         assert "status" not in r
 
-    def test_province_filter_uses_dimension_and_keeps_region_guard(self, monkeypatch):
+    def test_province_filter_is_row_level_and_keeps_region_guard(self, monkeypatch):
         fake = FakeDomain([])
         monkeypatch.setattr(ty, "domain_query", fake)
+        monkeypatch.setattr(ty, "_resolve_province",
+                            lambda t: ({"code": "sx",
+                                        "names": ["山西", "山西省"]}, None))
         ty.yearbook_read(7, province="山西")
         sql = fake.calls[0][1]
-        assert "dims->>'admin_region' = :province" in sql
-        assert fake.calls[0][2]["province"] == "山西"
+        # Row-level precedence: dimension first, materialized map only when
+        # the row carries no dimension. The two branches are exclusive.
+        assert "NULLIF(btrim(iv.dims->>'admin_region'), '') IS NOT NULL" in sql
+        assert "btrim(iv.dims->>'admin_region') = ANY(:prov_names)" in sql
+        assert "NULLIF(btrim(iv.dims->>'admin_region'), '') IS NULL" in sql
+        assert "yb_indicator_region_province m" in sql
+        assert "m.province_code = :prov_code" in sql
+        assert fake.calls[0][2]["prov_names"] == ["山西", "山西省"]
+        assert fake.calls[0][2]["prov_code"] == "sx"
         assert "region" not in fake.calls[0][2]
         # combining province with region must keep the guarded region predicate
         ty.yearbook_read(7, province="山西", region="万柏林区")
         sql2 = fake.calls[1][1]
-        assert "dims->>'admin_region' = :province" in sql2
-        assert "(region = :region OR ((region IS NULL OR btrim(region) = '')" in sql2
-        assert fake.calls[1][2] == {"iid": 7, "lim": 201, "off": 0,
-                                    "region": "万柏林区", "province": "山西"}
+        assert "(iv.region = :region OR ((iv.region IS NULL OR btrim(iv.region) = '')" in sql2
+        assert fake.calls[1][2]["region"] == "万柏林区"
+        assert fake.calls[1][2]["prov_code"] == "sx"
+
+    def test_unknown_province_falls_back_to_raw_dimension_match(self, monkeypatch):
+        fake = FakeDomain([])
+        monkeypatch.setattr(ty, "domain_query", fake)
+        monkeypatch.setattr(ty, "_resolve_province", lambda t: (None, None))
+        ty.yearbook_read(7, province="某未知省")
+        assert fake.calls[0][2]["prov_names"] == ["某未知省"]
+        assert fake.calls[0][2]["prov_code"] is None
+
+    def test_province_dictionary_failure_passes_through(self, monkeypatch):
+        fail = {"status": "domain_unavailable", "detail": "OperationalError"}
+        monkeypatch.setattr(ty, "domain_query", FakeDomain([]))
+        monkeypatch.setattr(ty, "_resolve_province", lambda t: (None, fail))
+        assert ty.yearbook_read(7, province="山西") == fail
+
+    def test_resolve_province_returns_code_and_name_aliases(self, monkeypatch):
+        rows = [{"code": "sx", "name_zh": "山西", "aliases": ["山西省"]}]
+
+        def fake(dbname, sql, params=None):
+            return rows if params.get("t") == "山西省" else []
+
+        monkeypatch.setattr(ty, "domain_query", fake)
+        prov, failure = ty._resolve_province("山西省")
+        assert failure is None
+        assert prov == {"code": "sx", "names": ["山西", "山西省"]}
+        prov, failure = ty._resolve_province("无此省")
+        assert (prov, failure) == (None, None)
 
     def test_offset_pagination_reports_next_offset(self, monkeypatch):
         rows = [_val_row(2020, region="A县"), _val_row(2020, region="B县"),
@@ -328,30 +364,58 @@ class TestRegionsUnit:
         ty.yearbook_regions(12208, limit=10)
         dbname, sql, params = fake.calls[0]
         assert dbname == "yearbook_catalog"
-        assert "dims->>'admin_region' AS province" in sql
-        assert "GROUP BY region, dims->>'admin_region'" in sql
-        assert "ORDER BY province NULLS LAST, region NULLS LAST" in sql
+        assert "yb_indicator_region_province m" in sql
+        assert "m.region IS NOT DISTINCT FROM iv.region" in sql
+        assert "LEFT JOIN LATERAL" in sql
+        assert "ORDER BY COALESCE(dp.name_zh" in sql
+        assert 'COLLATE "C" NULLS LAST' in sql
         assert params == {"iid": 12208, "lim": 11}
 
-    def test_regions_rows_map_to_envelope(self, monkeypatch):
-        rows = [{"region": "万柏林区", "province": "山西", "row_count": 13},
-                {"region": "太原市", "province": "山西", "row_count": 5}]
-        monkeypatch.setattr(ty, "domain_query", FakeDomain(rows))
+    def test_regions_rows_map_to_envelope_with_province_dictionary(self, monkeypatch):
+        rows = [{"region": "万柏林区", "province": "山西", "province_code": "sx",
+                 "row_count": 13},
+                {"region": "太原市", "province": "山西", "province_code": "sx",
+                 "row_count": 5}]
+        dict_rows = [{"code": "sx", "name": "山西", "aliases": ["山西省"]}]
+        calls = []
+
+        def fake(dbname, sql, params=None):
+            calls.append((dbname, sql, params or {}))
+            return dict_rows if "WHERE code = ANY(:codes)" in sql else rows
+
+        monkeypatch.setattr(ty, "domain_query", fake)
         r = ty.yearbook_regions(12208)
         assert r == {"results": [
-            {"province": "山西", "region": "万柏林区", "row_count": 13},
-            {"province": "山西", "region": "太原市", "row_count": 5},
-        ], "count": 2, "truncated": False}
+            {"province": "山西", "province_code": "sx",
+             "region": "万柏林区", "row_count": 13},
+            {"province": "山西", "province_code": "sx",
+             "region": "太原市", "row_count": 5},
+        ], "provinces": [{"code": "sx", "name": "山西",
+                          "aliases": ["山西省"]}],
+            "count": 2, "truncated": False}
+        assert calls[1][2] == {"codes": ["sx"]}
 
     def test_regions_limit_capped_and_truncation_reported(self, monkeypatch):
-        rows = [{"region": f"县{i}", "province": "山西", "row_count": 1}
-                for i in range(3)]
-        fake = FakeDomain(rows)
-        monkeypatch.setattr(ty, "domain_query", fake)
+        rows = [{"region": f"县{i}", "province": "山西", "province_code": "sx",
+                 "row_count": 1} for i in range(3)]
+
+        def fake(dbname, sql, params=None):
+            if "WHERE code = ANY(:codes)" in sql:
+                return [{"code": "sx", "name": "山西", "aliases": []}]
+            return rows
+
+        calls = []
+
+        def recording(dbname, sql, params=None):
+            calls.append((dbname, sql, params or {}))
+            return fake(dbname, sql, params)
+
+        monkeypatch.setattr(ty, "domain_query", recording)
         r = ty.yearbook_regions(1, limit=2)
         assert r["count"] == 2 and r["truncated"] is True
         ty.yearbook_regions(1, limit=99_999)
-        assert fake.calls[1][2]["lim"] == 501
+        region_calls = [c for c in calls if "GROUP BY iv.region" in c[1]]
+        assert region_calls[-1][2]["lim"] == 501
 
     def test_regions_domain_unavailable_passes_through(self, monkeypatch):
         fail = {"status": "domain_unavailable", "detail": "TimeoutError"}
@@ -461,6 +525,36 @@ class TestReadIntegration:
         assert isinstance(r.get("results"), list), r
         for row in r["results"]:
             assert (row["region"] or "").strip() in ("", "广东"), row
+
+    def test_province_filter_uses_materialized_map_when_dimension_is_absent(self):
+        # 12208 stores all 158 county/city rows with dims NULL; the data side
+        # materialized (indicator, region) -> sx. Anchor: 2026-10-22 handoff
+        # report — 158 regions, sx for every one of them.
+        r = ty.yearbook_regions(12208)
+        assert r["count"] == 158, r
+        assert r["truncated"] is False
+        assert {x["province"] for x in r["results"]} == {"山西"}
+        assert {x["province_code"] for x in r["results"]} == {"sx"}
+        assert r["provinces"] == [{"code": "sx", "name": "山西",
+                                   "aliases": ["山西省"]}]
+
+    def test_province_filter_accepts_name_code_and_alias(self):
+        for prov in ("山西", "sx", "山西省"):
+            r = ty.yearbook_read(12208, province=prov, limit=1000)
+            assert isinstance(r.get("results"), list), r
+            assert r["count"] == 1000 and r["truncated"] is True, (prov, r)
+            assert {row["region"] for row in r["results"]}.isdisjoint({None})
+        # The region guard still applies: the region column holds county
+        # names, so the province name matches no column value.
+        assert ty.yearbook_read(12208, region="山西", limit=10)["count"] == 0
+
+    def test_province_filter_never_mixes_multi_province_rows(self):
+        # 211 is a multi-province comparison table (region column = province
+        # names): each province filter returns its own rows only.
+        sx = ty.yearbook_read(211, province="山西", limit=1000)
+        gd = ty.yearbook_read(211, province="广东", limit=1000)
+        assert {row["region"] for row in sx["results"]} == {"山西"}
+        assert {row["region"] for row in gd["results"]} == {"广东"}
 
     def test_read_query_plan_is_index_shaped(self):
         iid, region, ymin, ymax = _discover_series()
