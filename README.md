@@ -41,7 +41,8 @@ a default binding) behave exactly as before.
 | `ai_search` | Natural-language indicator + entity discovery (superset of all search tools). |
 | `graph_search` | Entity-relationship graph queries (bfs/dfs/neighbors/shortest_path/subgraph/ego_graph/statistics). |
 | `yearbook_search_indicators` | Fuzzy-search statistical-yearbook indicators (federated from the Windows data machine). |
-| `yearbook_read` | Annual series for a yearbook indicator, optionally one region and year range (latest edition wins). |
+| `yearbook_read` | Annual series for one yearbook indicator: optional `region` (exact column value), `province` (name / two-letter code / alias), year range, and `offset` paging (1,000/page; `next_offset` when truncated). Latest edition wins; rows ordered by `(data_year, region)`. |
+| `yearbook_regions` | Bounded `(province, province_code, region)` discovery for one indicator (max 500) plus the covering province dictionary — use it to pick a province/region before `yearbook_read`. |
 | `law_search` | Fuzzy-search Chinese laws/regulations by title with optional category filter. |
 | `law_read` | Full text + metadata of one law by id. |
 | `legal_docs_search` | Fuzzy-search the authoritative-sources corpus (gov rules / MFA treaties / CCDI / rmfyalk / party regulations) with source & doc_type filters. |
