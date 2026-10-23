@@ -40,6 +40,7 @@ HINTS = ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
 #: The ``*_read`` / ``*_get_*`` counterparts take no scope and write nothing.
 WRITES_STATE = {
     "read_range",
+    "indicator_series_read",
     "yearbook_search_indicators",
     "law_search",
     "legal_docs_search",
@@ -60,12 +61,12 @@ WRITES_STATE = {
 #: fetches from a live upstream provider. Everything else reads this service's
 #: own versioned stores (crawled cache, federated PG, RustFS body blocks,
 #: local embedding model), which are closed and reproducible.
-OPEN_WORLD = {"read_range"}
+OPEN_WORLD = {"read_range", "indicator_series_read"}
 
 #: Tools that create a new counter row (or bump a counter) per call: replay
 #: changes state, so they are not idempotent. ``read_range`` is an upsert on
 #: (concept, entity, date, source) — replay converges to the same rows.
-NOT_IDEMPOTENT = WRITES_STATE - {"read_range"}
+NOT_IDEMPOTENT = WRITES_STATE - {"read_range", "indicator_series_read"}
 
 
 @pytest.fixture(scope="module")

@@ -255,6 +255,39 @@ def read_range(
         s.close()
 
 
+# --- Unified indicator-series read: registry identities ----------------------
+@mcp.tool(annotations=annotations_for("indicator_series_read"))
+def indicator_series_read(
+    indicator_ids: list[str], entity_type: str, entity_id: int | str,
+    start: str | None = None, end: str | None = None,
+) -> dict:
+    """Read one or more indicators by unified-registry identity over [start, end].
+
+    Identities are ``source_db:native_code`` (the catalog's ``indicator_id``):
+    ``fd_open_data:<code>`` (active concepts, dated series), ``yearbook_catalog:<id>``
+    (annual, entity_type=region, entity_id=region name), ``world_bank:<wdi_code>``
+    (annual, entity_type=country, entity_id=ISO3 or Chinese name). start/end are
+    ``YYYY`` or ``YYYY-MM-DD``; bounds are inclusive. Returns
+    ``{results: [{indicator_id, date, value, unit, brand}], errors: [{indicator_id,
+    error}], rows_returned}`` — rows and per-identity rejections are batch-isolated:
+    one bad identity never interrupts the others. An empty ``results`` for a valid
+    identity means no data in range (truthful); a rejected identity lands in
+    ``errors`` instead (unsupported source_db / unresolvable code / wrong entity
+    type / domain down). Every value is FindData-branded.
+    """
+    from fd_find_data_business_mcp.series_router import (
+        SeriesRouteError, read_series)
+
+    results: list[dict] = []
+    errors: list[dict] = []
+    for iid in indicator_ids:
+        try:
+            results.extend(_strip(read_series(iid, entity_type, entity_id, start, end)))
+        except SeriesRouteError as exc:
+            errors.append({"indicator_id": iid, "error": str(exc)})
+    return {"results": results, "errors": errors, "rows_returned": len(results)}
+
+
 # --- Full catalog visibility (provenance-free) ------------------------------
 @mcp.tool(annotations=annotations_for("list_concepts"))
 def list_concepts(entity_type: str | None = None) -> list[dict]:

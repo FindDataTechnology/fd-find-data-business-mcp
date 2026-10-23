@@ -72,6 +72,7 @@ TOOL_ANNOTATIONS: dict[str, dict[str, Any]] = {
     # Core reads (own crawled store / local embedding model / graph cache).
     "read": dict(READ_ONLY),
     "read_range": dict(CACHE_FILL),
+    "indicator_series_read": dict(CACHE_FILL),  # cold ranges upsert via read_range
     "list_concepts": dict(READ_ONLY),
     "ai_search": dict(READ_ONLY),
     "graph_search": dict(READ_ONLY),

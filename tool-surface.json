@@ -39,9 +39,10 @@
         "list_concepts",
         "ai_search",
         "graph_search",
-        "registry_coverage"
+        "registry_coverage",
+        "indicator_series_read"
       ],
-      "notes": "federated read 只认 verified AND (semantic_code|native_code) 的注册条目（federation.py resolve_registry_entry）——yearbook 系指标几乎全部 verified=false，走本组 read 取不到，消费侧必须改走 yearbook_read 域工具。"
+      "notes": "federated read 只认 verified AND (semantic_code|native_code) 的注册条目（federation.py resolve_registry_entry）——yearbook 系指标几乎全部 verified=false，走本组 read 取不到，消费侧必须改走 yearbook_read 域工具。 indicator_series_read=统一注册标识拉数（source_db:native_code → 统一行形状；冷区间经 read_range 落缓存）。"
     },
     {
       "group": "yearbook",
@@ -140,6 +141,6 @@
   "registry": {
     "entry_path": "/fd-find-data-business-mcp",
     "upstream": "http://guangzhou-zihan.mesh.finddata.cn:30803/mcp",
-    "expected_tool_count": 33
+    "expected_tool_count": 34
   }
 }
