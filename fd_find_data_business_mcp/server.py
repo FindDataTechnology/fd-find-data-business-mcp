@@ -14,6 +14,7 @@ from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 
 from fd_open_data_mcp.db import get_database
 
+from fd_find_data_business_mcp import wellknown
 from fd_find_data_business_mcp.annotations import annotations_for
 
 # --- Auth: Logto JWT, env-gated ---------------------------------------------
@@ -133,6 +134,10 @@ mcp = FastMCP(
     auth=_build_auth(),
     middleware=[_RowsReturnedMiddleware()],
 )
+
+# 线自描述端点 /.well-known/line-manifest.json（公开、免鉴权、零网络）。
+# 模块级 mcp 在 import 时即完成装配，因此这里紧随其后挂载——声明与挂载同一处。
+wellknown.register(mcp)
 
 
 def _session():

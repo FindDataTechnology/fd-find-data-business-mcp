@@ -39,5 +39,13 @@ RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple/ . \
 # Back to the base's unprivileged user.
 USER appuser
 WORKDIR /app
+
+# 线自描述端点 /.well-known/line-manifest.json（change converge-line-identity-and-keys
+# 1.4）：仓根那份是唯一真源，端点原样回吐。上面的 `COPY . .` 只把清单放进 /src，而
+# /src 在 pip install 之后被删掉；setuptools 的 wheel 也不含仓根的 line-manifest.json
+# （packages.find 只收包内文件）。所以必须显式 COPY 到运行期 WORKDIR（/app）——
+# 不然镜像里这个文件根本不存在，端点永远 404。
+COPY line-manifest.json ./
+
 EXPOSE 8310
 ENTRYPOINT ["fd-find-data-business-mcp", "serve", "--transport", "http", "--host", "0.0.0.0", "--port", "8310"]
