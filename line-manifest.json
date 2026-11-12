@@ -1,0 +1,34 @@
+{
+  "schema": "line-manifest/v1",
+  "line": "finddata-business",
+  "public_base_url": "https://mcp.finddatatech.cloud/fd-find-data-business-mcp",
+  "identity": {
+    "issuer": "https://auth.finddatatech.cloud/oidc",
+    "jwks_uri": "https://auth.finddatatech.cloud/oidc/jwks",
+    "jit_policy": "off",
+    "note": "本仓零入站凭据校验：`FastMCP(name=\"finddata\", ...)` 未传 auth、未挂中间件（server.py:122）。本仓没有断言兑换端点，jit_policy=off。"
+  },
+  "auth_tracks": [
+    {
+      "kind": "customer-key",
+      "accepts": "ciyuan-sk",
+      "fallback": false,
+      "enforced": false,
+      "migration_task": "converge-line-identity-and-keys#8.3",
+      "note": "未接：本仓不解析入站凭据。"
+    }
+  ],
+  "scopes": [
+    "line:read"
+  ],
+  "billing": {
+    "plane": "ciyuan",
+    "note": "本仓零计费代码（grep `sub2api` 无命中）：按调用扣费发生在网关/registry 的词元平面，不在本线代码里。本仓只做平台计量契约的**戳**（把 `rows_returned` 盖到读工具信封上，server.py:166-169），扣费由 registry/词元平面按此戳记。"
+  },
+  "surfaces": {
+    "mcp": true,
+    "account": false,
+    "admin": false
+  },
+  "note": "柏讯数据联邦 MCP：核心读取（指标点值/序列/语义检索/图谱）+ 九源域联邦（年鉴/法规/法律语料/指导案例/裁判文书/企查/世行/GTA/城市）+ DAAS 域，全只读。**这是柏讯对客户的主数据面**，却零入站校验——补线自有钥匙的优先级最高。"
+}
