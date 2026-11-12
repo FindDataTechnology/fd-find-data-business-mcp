@@ -10,6 +10,8 @@ import os
 from typing import Any
 
 from fastmcp import FastMCP
+
+from fd_find_data_business_mcp import wellknown
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 
 from fd_open_data_mcp.db import get_database
@@ -133,6 +135,11 @@ mcp = FastMCP(
     auth=_build_auth(),
     middleware=[_RowsReturnedMiddleware()],
 )
+
+# 线自描述端点（change converge-line-identity-and-keys 1.4）：公开、免鉴权、零网络。
+# 本仓的门是 FastMCP 的 auth（只挂 /mcp 路由），custom_route 不经过它；若将来加
+# 包住整个 ASGI 的门，必须把 wellknown.WELL_KNOWN_PATH 一并豁免。
+wellknown.register(mcp)
 
 
 def _session():

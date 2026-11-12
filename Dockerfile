@@ -39,5 +39,10 @@ RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple/ . \
 # Back to the base's unprivileged user.
 USER appuser
 WORKDIR /app
+
+# 线自描述端点 /.well-known/line-manifest.json（change 1.4）：清单在仓根，
+# 上面的 COPY . . 只进 /src 且随后被删，必须显式放进运行期 WORKDIR。
+COPY line-manifest.json ./
+
 EXPOSE 8310
 ENTRYPOINT ["fd-find-data-business-mcp", "serve", "--transport", "http", "--host", "0.0.0.0", "--port", "8310"]
