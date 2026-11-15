@@ -16,6 +16,7 @@ from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 
 from fd_open_data_mcp.db import get_database
 
+from fd_find_data_business_mcp import wellknown
 from fd_find_data_business_mcp.annotations import annotations_for
 
 # --- Auth: Logto JWT, env-gated ---------------------------------------------

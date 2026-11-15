@@ -70,7 +70,7 @@
         "legal_docs_search",
         "legal_docs_read"
       ],
-      "notes": "五源法律语料（29,958 篇）——本仓侧已接线（fd-legal-search-mcp 侧同名工具为骨架态 not_wired 7.1，两处状态不同步属已知，各自 manifest 各自如实声明）。"
+      "notes": "五源法律语料（47,256 篇，见 fd-lex/collateral/numbers.md N6）——两侧同名 legal_docs_* 均已接线且语义等价：本仓侧 commercial，fd-legal-search-mcp 侧 2026-10-19 起 commercial（10/10 工具）；同轮只用一条通道，不重复检索。"
     },
     {
       "group": "guide_cases",
