@@ -31,7 +31,7 @@ spec:
     spec:
       containers:
         - name: fd-find-data-business-mcp
-          image: ccr.ccs.tencentyun.com/finddata-business/fd-find-data-business-mcp:sha-7dd44d7 # + /.well-known 自描述端点（change 1.4，公开免鉴权、清单随镜像）
+          image: ccr.ccs.tencentyun.com/finddata-business/fd-find-data-business-mcp:sha-c294d50 # ｜2026-11-15 sha-c294d50：公开载荷剥离（清单 6 段 note 移仓内 docs/；3417→943 B；池快照 c294d508，源真 9549824）｜回滚=sha-7dd44d7 ｜ + /.well-known 自描述端点（change 1.4，公开免鉴权、清单随镜像）
           imagePullPolicy: Always
           ports:
             - name: mcp
