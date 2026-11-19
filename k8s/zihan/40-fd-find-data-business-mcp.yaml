@@ -1,6 +1,6 @@
 # fd-find-data-business-mcp — commercial FindData MCP server (login-gated).
 #
-# Deploy on zihan k3s, namespace fd-mcp. Shares the fd-mcp-env Secret with
+# Deploy on the node k3s, namespace fd-mcp. Shares the fd-mcp-env Secret with
 # fd-open-data-mcp / fd-cn-report; add FDBIZ_JWKS_URI / FDBIZ_ISSUER /
 # FDBIZ_AUDIENCE to that Secret before applying (see README.md "Deploy").
 #
@@ -8,7 +8,7 @@
 # Image pipeline (since 2026-09-19): Jenkins job fd-find-data-business-mcp
 # builds from gitee main on push and pushes immutable sha-<short-hash> tags to
 # Harbor project finddata-business. This manifest is managed by the ArgoCD
-# application fd-find-data-business-mcp (tencent cluster → zihan via SSH relay)
+# application fd-find-data-business-mcp (tencent cluster → the node via SSH relay)
 # — bump the tag here to release.
 apiVersion: apps/v1
 kind: Deployment

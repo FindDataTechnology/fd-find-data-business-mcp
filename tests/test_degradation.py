@@ -82,7 +82,7 @@ class TestFailSoftEndToEnd:
                                                tools_yearbook)
 
         monkeypatch.setenv("FDBIZ_DOMAIN_PG_URL",
-                           "postgresql://fdbiz_ro:x@100.64.0.99:5432/postgres")
+                           "postgresql://fdbiz_ro:x@<db-host>:5432/postgres")
         domain.dispose_all()
         try:
             t0 = time.monotonic()

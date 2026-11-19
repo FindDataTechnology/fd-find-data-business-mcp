@@ -67,7 +67,9 @@ _SECRET_KEY_ENV = "FDBIZ_RUSTFS_SECRET_KEY"
 _REGION_ENV = "FDBIZ_RUSTFS_REGION"
 _BUCKET_ENV = "FDBIZ_RUSTFS_WENSHU_BUCKET"
 
-_DEFAULT_ENDPOINT = "http://100.64.0.11:9000"
+#: No default. The object store is deployment-specific; a hardcoded address both
+#: publishes it and silently points a fresh run at it. FDBIZ_RUSTFS_ENDPOINT must be set.
+_DEFAULT_ENDPOINT = None
 _DEFAULT_REGION = "us-east-1"
 _DEFAULT_BUCKET = "wenshu"
 
@@ -81,7 +83,12 @@ _client_cache: dict[tuple, Any] = {}  # (endpoint, key, secret, region) -> clien
 
 
 def _endpoint() -> str:
-    return os.environ.get(_ENDPOINT_ENV) or _DEFAULT_ENDPOINT
+    """Object-store endpoint. Missing config fails here, naming the variable, rather than
+    surfacing later as a connection to a host we do not control."""
+    value = os.environ.get(_ENDPOINT_ENV)
+    if not value:
+        raise RuntimeError(f"{_ENDPOINT_ENV} must be set (object store endpoint)")
+    return value
 
 
 def _region() -> str:

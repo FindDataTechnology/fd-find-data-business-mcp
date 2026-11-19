@@ -1,5 +1,7 @@
 # fd-find-data-business-mcp（内部仓）
 
+> **Part of the [Wire line (寻数·柏讯)](https://www.finddatatech.cloud/products/wire) of [FindData](https://www.finddatatech.cloud)** — the business MCP: wenshu judgment documents and domain federation over the open-data platform.
+
 > **2026-10-01 起私有**（change `five-lines-public-surface`；决策记录：工作区 `docs/adr/0001-public-surface-boundary-and-facade.md`）。
 > 本仓是柏讯 wire 线的云端商业数据联邦，对外口径收敛到官网 `/products/wire` 条目；本 README 为内部运维文档。
 > PyPI 通道已关闭：`release.yml` 删除并禁用、`PYPI_API_TOKEN` 已吊销、0.1.0–0.1.2 已 yank；付费客户一律**镜像交付**。
@@ -67,7 +69,7 @@ The twenty-six domain tools (nine sources × search/read pairs plus the
 eight-tool `daas` supply domain; 2026-10-06 code caliber — every
 `@mcp.tool` below the five core reads except `registry_coverage`) read the Windows data machine's PostgreSQL in place,
 read-only, via `FDBIZ_DOMAIN_PG_URL` (e.g.
-`postgresql://fdbiz_ro:***@100.64.0.5:5432/postgres`; role `fdbiz_ro` has
+`postgresql://fdbiz_ro:***@<db-host>:5432/postgres`; role `fdbiz_ro` has
 SELECT-only grants on `yearbook_catalog`, `law_db`, `world_bank`, `gta_panel`,
 `china_city_panel`, `wenshu_db` and `ia35`). If that machine is down, the domain
 tools return `{"status": "domain_unavailable"}` while all core tools are
@@ -79,7 +81,7 @@ unaffected. Optional tuning env: `FDBIZ_DOMAIN_CONNECT_TIMEOUT` (default 5s),
 
 `wenshu_read` fetches full text from the zstd-compressed month blocks on
 RustFS (S3-compatible) via boto3: `FDBIZ_RUSTFS_ENDPOINT` (default
-`http://100.64.0.11:9000`), `FDBIZ_RUSTFS_ACCESS_KEY`, `FDBIZ_RUSTFS_SECRET_KEY`,
+`http://<object-store-host>:9000`), `FDBIZ_RUSTFS_ACCESS_KEY`, `FDBIZ_RUSTFS_SECRET_KEY`,
 `FDBIZ_RUSTFS_REGION` (default `us-east-1`), `FDBIZ_RUSTFS_WENSHU_BUCKET`
 (default `wenshu`). When the store is unreachable, reads degrade to decoded
 metadata with an honest content-missing note. Corpus caliber: static
@@ -164,14 +166,14 @@ With `FDBIZ_JWKS_URI` unset, auth is disabled (smoke test / local dev). Set it
 in deploy to reject every request without a valid Logto-issued JWT (401 before
 any tool runs).
 
-## Deploy (zihan k3s, namespace `fd-mcp`)
+## Deploy (the node k3s, namespace `fd-mcp`)
 
 Auth is Logto (ES384 JWT) via FastMCP's `JWTVerifier`. The canonical Logto
-instance runs on guangzhou-xinru:
+instance runs on the db host:
 
 | Env var | Value |
 |---|---|
-| `FD_OPEN_DATA_MCP_DATABASE_URL` | `postgresql://fd:***@100.64.0.3:30432/fd_open_data` (mesh address of guangzhou-xinru) |
+| `FD_OPEN_DATA_MCP_DATABASE_URL` | `postgresql://fd:***@<db-host>:30432/fd_open_data` (mesh address of the db host) |
 | `FDBIZ_JWKS_URI` | `https://auth.finddatatech.cloud/oidc/jwks` |
 | `FDBIZ_ISSUER` | `https://auth.finddatatech.cloud/oidc` |
 | `FDBIZ_AUDIENCE` | the API resource identifier you register in Logto admin (recommended: `https://api.finddatatech.cloud/mcp`) |
@@ -183,18 +185,18 @@ them; `MCP_BEARER_TOKEN` from the sibling pods is inert here, this pod uses JWT
 auth, not bearer):
 
 ```bash
-# on zihan (sudo kubectl)
+# on the node (sudo kubectl)
 sudo kubectl -n fd-mcp create secret generic fd-mcp-env \
-  --from-literal=FD_OPEN_DATA_MCP_DATABASE_URL='postgresql://fd:***@100.64.0.3:30432/fd_open_data' \
-  --from-literal=REDIS_URL='redis://:***@100.64.0.3:30380/0' \
+  --from-literal=FD_OPEN_DATA_MCP_DATABASE_URL='postgresql://fd:***@<db-host>:30432/fd_open_data' \
+  --from-literal=REDIS_URL='redis://:***@<db-host>:30380/0' \
   --from-literal=FDBIZ_JWKS_URI='https://auth.finddatatech.cloud/oidc/jwks' \
   --from-literal=FDBIZ_ISSUER='https://auth.finddatatech.cloud/oidc' \
   --from-literal=FDBIZ_AUDIENCE='https://api.finddatatech.cloud/mcp' \
   --dry-run=client -o yaml | sudo kubectl apply -f -
-sudo kubectl -n fd-mcp apply -f k8s/zihan/40-fd-find-data-business-mcp.yaml
+sudo kubectl -n fd-mcp apply -f k8s/the node/40-fd-find-data-business-mcp.yaml
 ```
 
-Reachable over the mesh at `http://100.64.0.4:30803/mcp` (zihan NodePort 30803).
+Reachable over the mesh at `http://<node>:30803/mcp` (the node NodePort 30803).
 
 ## Logto: register the API resource
 

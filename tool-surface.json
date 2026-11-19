@@ -140,7 +140,7 @@
   ],
   "registry": {
     "entry_path": "/fd-find-data-business-mcp",
-    "upstream": "http://guangzhou-zihan.mesh.finddata.cn:30803/mcp",
+    "upstream": "http://<node>:30803/mcp",
     "expected_tool_count": 34
   }
 }

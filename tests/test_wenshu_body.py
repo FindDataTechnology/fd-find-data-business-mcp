@@ -209,7 +209,7 @@ class TestClientConfig:
         monkeypatch.delenv("FDBIZ_RUSTFS_ENDPOINT", raising=False)
         monkeypatch.delenv("FDBIZ_RUSTFS_REGION", raising=False)
         monkeypatch.delenv("FDBIZ_RUSTFS_WENSHU_BUCKET", raising=False)
-        assert wb._endpoint() == "http://100.64.0.11:9000"
+        assert wb._endpoint() == "http://<object-store-host>:9000"
         assert wb._region() == "us-east-1"
         assert wb.bucket() == "wenshu"
         monkeypatch.setenv("FDBIZ_RUSTFS_ENDPOINT", "http://127.0.0.1:9")

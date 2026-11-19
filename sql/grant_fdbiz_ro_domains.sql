@@ -4,7 +4,7 @@
 -- machine. Idempotent — safe to re-run.
 --
 --   PGPASSWORD=<postgres pw, INFRA-NOTES.md> \
---     psql -h 100.64.0.5 -p 5432 -U postgres -d postgres \
+--     psql -h <db-host> -p 5432 -U postgres -d postgres \
 --          -f sql/grant_fdbiz_ro_domains.sql
 --
 -- Verification (as fdbiz_ro, one per database):
