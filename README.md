@@ -1,5 +1,11 @@
 # fd-find-data-business-mcp（内部仓）
 
+<!-- deploy-location -->
+> **部署清单不在本仓。** 集群清单已迁至 `fd-infra-deploy/all-services/`，
+> Application 定义在 `fd-infra-deploy/argocd/`。
+> 原因与判据：`openspec/changes/consolidate-deploy-manifests`（2026-11-20）。
+
+
 > **Part of the [Wire line (寻数·柏讯)](https://www.finddatatech.cloud/products/wire) of [FindData](https://www.finddatatech.cloud)** — the business MCP: wenshu judgment documents and domain federation over the open-data platform.
 
 > **2026-10-01 起私有**（change `five-lines-public-surface`；决策记录：工作区 `docs/adr/0001-public-surface-boundary-and-facade.md`）。

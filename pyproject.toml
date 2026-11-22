@@ -7,7 +7,7 @@ name = "fd-find-data-business-mcp"
 dynamic = ["version"]
 description = "Commercial, login-gated MCP server serving FindData's own crawled data — zero upstream-provider exposure."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "MIT"
 authors = [{ name = "FindDataTechnology" }]
 dependencies = [
@@ -21,7 +21,7 @@ dependencies = [
     # instead and fail every core tool at startup. Failing the build on a
     # stale version beats shipping that image.
     "fd-open-data-mcp[data,search]>=0.5.21",
-    "fastmcp>=3.4,<4",
+    "fastmcp>=4.2.4,<5",
     "click",
     "uvicorn",
     # graph_search 委托 fd_open_data_mcp.graph.manager（顶层 import networkx）。
