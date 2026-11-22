@@ -24,6 +24,11 @@ dependencies = [
     "fastmcp>=3.4,<4",
     "click",
     "uvicorn",
+    # graph_search 委托 fd_open_data_mcp.graph.manager（顶层 import networkx）。
+    # 显式声明：不依赖 fd-open-data-mcp 是否恰好把 networkx 带进来——实测
+    # fd-open-data-mcp:main base 镜像未装，[data,search] 也不含，导致 graph_search
+    # 报 No module named 'networkx'（2026-11-22 生产实证）。自足声明胜过依赖传递。
+    "networkx>=3.0",
     # [wenshu]: judgment bodies live in zstd-compressed RustFS blocks —
     # boto3 fetches the S3-compatible object, zstandard decompresses it.
     "boto3",
