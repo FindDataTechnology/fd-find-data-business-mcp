@@ -31,6 +31,12 @@ ENTITY_DICTIONARY: dict[str, str] = {
     "world_bank": (
         "entity_type 固定 country；entity_id = ISO3 码或中文名（CHN / 中国）"
     ),
+    "china_city_panel": (
+        "entity_type 固定 city；entity_id = 城市名（如 北京市）或整型城市码"
+    ),
+    "gta_panel": (
+        "entity_type 固定 firm；entity_id = 6 位股票代码或短码（如 000001 / 1）"
+    ),
 }
 
 
@@ -163,12 +169,64 @@ def _world_bank_router(native_code: str, entity_type: str, entity_id: str,
              "unit": r["unit"], "brand": "finddata"} for r in results]
 
 
+# --- china city panel (annual; city is the entity) ---------------------------
+
+def _city_router(native_code: str, entity_type: str, entity_id: str,
+                 start: str, end: str) -> list[dict]:
+    from fd_find_data_business_mcp.tools_city import city_read
+
+    if entity_type != "city":
+        raise SeriesRouteError(
+            f"china_city_panel 实体类型必须为 city，收到 {entity_type!r}")
+    # city natural key is a Chinese name or an integer city code; entity_id may be
+    # either. city_read resolves both, so pass through as a string (its _CITY_SQL
+    # handles digit vs name).
+    sy, ey = _year_to_range(start, end)
+    out = city_read(native_code, city=str(entity_id), start_year=sy, end_year=ey,
+                    limit=10000)
+    if isinstance(out, dict) and out.get("status") == "domain_unavailable":
+        raise SeriesRouteError(
+            f"china_city_panel 域暂不可用: {out.get('detail', '')}")
+    if isinstance(out, dict) and out.get("status") == "unknown_variable":
+        raise SeriesRouteError(
+            f"indicator 解析失败: china_city_panel:{native_code}")
+    results = out.get("results", []) if isinstance(out, dict) else []
+    return [{"indicator_id": f"china_city_panel:{native_code}",
+             "date": _date_of_year(int(r["year"])), "value": r["value"],
+             "unit": "", "brand": "finddata"} for r in results]
+
+
+# --- GTA panel (annual; firm is the entity) ----------------------------------
+
+def _gta_router(native_code: str, entity_type: str, entity_id: str,
+                start: str, end: str) -> list[dict]:
+    from fd_find_data_business_mcp.tools_gta import gta_read
+
+    if entity_type != "firm":
+        raise SeriesRouteError(
+            f"gta_panel 实体类型必须为 firm，收到 {entity_type!r}")
+    # firm_id is a 6-digit code or short int; gta_read normalizes via _firm_key.
+    sy, ey = _year_to_range(start, end)
+    out = gta_read(native_code, start_year=sy, end_year=ey,
+                   firm_ids=[entity_id], limit=2000)
+    if isinstance(out, dict) and out.get("status") == "domain_unavailable":
+        raise SeriesRouteError(f"gta_panel 域暂不可用: {out.get('detail', '')}")
+    if isinstance(out, dict) and out.get("status") == "unknown_variable":
+        raise SeriesRouteError(f"indicator 解析失败: gta_panel:{native_code}")
+    results = out.get("results", []) if isinstance(out, dict) else []
+    return [{"indicator_id": f"gta_panel:{native_code}",
+             "date": _date_of_year(int(r["year"])), "value": r["value"],
+             "unit": "", "brand": "finddata"} for r in results]
+
+
 #: Explicit router table: source_db -> reader. New stores register here;
 #: everything else is an explicit not-supported rejection.
 SERIES_ROUTERS: dict[str, Callable[[str, str, Any, str, str], list[dict]]] = {
     "fd_open_data": _semantic_router,
     "yearbook_catalog": _yearbook_router,
     "world_bank": _world_bank_router,
+    "china_city_panel": _city_router,
+    "gta_panel": _gta_router,
 }
 
 

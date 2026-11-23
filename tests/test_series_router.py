@@ -69,6 +69,15 @@ class TestRouting:
             sr.read_series("world_bank:NY.GDP.PCAP.CD", "region", "全国", "2020", "2024")
         assert "country" in str(ei.value)
 
+    def test_city_and_gta_are_routed_not_unsupported(self):
+        # 2026-11-23：china_city_panel / gta_panel 曾是「verified 但不可读」
+        # （source_db 未注册 → 422）。现登记进 SERIES_ROUTERS；错实体类型时
+        # 报的是**实体类型**错，不再报「暂不支持序列拉取」。
+        for iid in ("china_city_panel:v036", "gta_panel:a001000000"):
+            with pytest.raises(sr.SeriesRouteError) as ei:
+                sr.read_series(iid, "region", "x", "2020", "2024")
+            assert "暂不支持序列拉取" not in str(ei.value)
+
 
 # --- routers against faked impls -------------------------------------------------
 
@@ -130,6 +139,75 @@ class TestRouters:
                                              "detail": "boom"})
         with pytest.raises(sr.SeriesRouteError):
             sr._world_bank_router("NY.GDP.PCAP.CD", "country", "CHN", None, None)
+
+    def test_city_rows_normalized(self, monkeypatch):
+        from fd_find_data_business_mcp import tools_city as tc
+
+        def fake_read(variable, city=None, start_year=None, end_year=None,
+                      limit=10000):
+            assert variable == "v036" and city == "北京市"
+            assert start_year == 2019 and end_year == 2020
+            return {"results": [
+                {"year": 2019, "city_code": 110000, "city_name": "北京市",
+                 "value": 60.0, "brand": "finddata"},
+            ], "count": 1, "truncated": False}
+
+        monkeypatch.setattr(tc, "city_read", fake_read)
+        rows = sr._city_router("v036", "city", "北京市", "2019", "2020")
+        assert rows == [{"indicator_id": "china_city_panel:v036",
+                         "date": "2019-12-31", "value": 60.0, "unit": "",
+                         "brand": "finddata"}]
+
+    def test_city_wrong_entity_type_rejected(self, monkeypatch):
+        from fd_find_data_business_mcp import tools_city as tc
+
+        monkeypatch.setattr(tc, "city_read", lambda *a, **k: {"results": []})
+        with pytest.raises(sr.SeriesRouteError) as ei:
+            sr._city_router("v036", "country", "CHN", "2019", "2020")
+        assert "city" in str(ei.value)
+
+    def test_city_unknown_variable_rejected(self, monkeypatch):
+        from fd_find_data_business_mcp import tools_city as tc
+
+        monkeypatch.setattr(tc, "city_read",
+                            lambda *a, **k: {"status": "unknown_variable"})
+        with pytest.raises(sr.SeriesRouteError) as ei:
+            sr._city_router("v999", "city", "北京市", None, None)
+        assert "解析失败" in str(ei.value)
+
+    def test_gta_rows_normalized(self, monkeypatch):
+        from fd_find_data_business_mcp import tools_gta as tg
+
+        def fake_read(variable, start_year=None, end_year=None, firm_ids=None,
+                      limit=2000):
+            assert variable == "a001000000" and firm_ids == ["1"]
+            return {"results": [
+                {"firm_id": "000001", "firm": "平安银行", "year": 2020,
+                 "value": 4.4e12, "brand": "finddata"},
+            ], "count": 1, "truncated": False}
+
+        monkeypatch.setattr(tg, "gta_read", fake_read)
+        rows = sr._gta_router("a001000000", "firm", "1", "2019", "2020")
+        assert rows == [{"indicator_id": "gta_panel:a001000000",
+                         "date": "2020-12-31", "value": 4.4e12, "unit": "",
+                         "brand": "finddata"}]
+
+    def test_gta_wrong_entity_type_rejected(self, monkeypatch):
+        from fd_find_data_business_mcp import tools_gta as tg
+
+        monkeypatch.setattr(tg, "gta_read", lambda *a, **k: {"results": []})
+        with pytest.raises(sr.SeriesRouteError) as ei:
+            sr._gta_router("a001000000", "city", "北京市", "2019", "2020")
+        assert "firm" in str(ei.value)
+
+    def test_gta_unknown_variable_rejected(self, monkeypatch):
+        from fd_find_data_business_mcp import tools_gta as tg
+
+        monkeypatch.setattr(tg, "gta_read",
+                            lambda *a, **k: {"status": "unknown_variable"})
+        with pytest.raises(sr.SeriesRouteError) as ei:
+            sr._gta_router("nope", "firm", "1", None, None)
+        assert "解析失败" in str(ei.value)
 
 
 # --- semantic router: session-level fakes ----------------------------------------

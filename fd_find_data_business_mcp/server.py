@@ -274,8 +274,10 @@ def indicator_series_read(
     Identities are ``source_db:native_code`` (the catalog's ``indicator_id``):
     ``fd_open_data:<code>`` (active concepts, dated series), ``yearbook_catalog:<id>``
     (annual, entity_type=region, entity_id=region name), ``world_bank:<wdi_code>``
-    (annual, entity_type=country, entity_id=ISO3 or Chinese name). start/end are
-    ``YYYY`` or ``YYYY-MM-DD``; bounds are inclusive. Returns
+    (annual, entity_type=country, entity_id=ISO3 or Chinese name),
+    ``china_city_panel:<v###>`` (annual, entity_type=city, entity_id=city name or code),
+    ``gta_panel:<code>`` (annual, entity_type=firm, entity_id=6-digit stock code or short).
+    start/end are ``YYYY`` or ``YYYY-MM-DD``; bounds are inclusive. Returns
     ``{results: [{indicator_id, date, value, unit, brand}], errors: [{indicator_id,
     error}], rows_returned}`` — rows and per-identity rejections are batch-isolated:
     one bad identity never interrupts the others. An empty ``results`` for a valid
